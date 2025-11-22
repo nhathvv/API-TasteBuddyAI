@@ -93,11 +93,7 @@ export class MenuService {
       activityLevel: 'moderate',
       goal: 'weight-loss',
     },
-    allergens: [
-      { name: 'peanut', severity: 'severe' },
-      { name: 'gluten', severity: 'moderate' },
-      { name: 'egg', severity: 'mild' },
-    ],
+    allergens: [],
     healthConditions: ['hypertension', 'diabetes'],
   };
 
@@ -940,7 +936,8 @@ export class MenuService {
     userAllergens: any[],
     healthConditions: string[],
   ) {
-    if (!allergenCheck || !userAllergens || userAllergens.length === 0) {
+    // Case 1: No allergen profile provided
+    if (!userAllergens || userAllergens.length === 0) {
       return {
         status: 'safe',
         overallRisk: 'low',
@@ -949,6 +946,19 @@ export class MenuService {
         warnings: [],
         safeTags: ['✅ No allergen profile provided - unable to check'],
         recommendation: 'Provide allergen profile for safety analysis',
+      };
+    }
+
+    // Case 2: Allergen profile provided, but analysis failed (e.g. matching error)
+    if (!allergenCheck) {
+      return {
+        status: 'warning',
+        overallRisk: 'unknown',
+        detectedAllergens: [],
+        healthConditionWarnings: [],
+        warnings: ['⚠️ Safety analysis failed for this dish (matching error)'],
+        safeTags: [],
+        recommendation: 'Please verify ingredients manually',
       };
     }
 

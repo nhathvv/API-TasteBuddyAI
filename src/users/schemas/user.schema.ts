@@ -7,7 +7,12 @@ export enum AuthProvider {
   LOCAL = 'local',
 }
 
-@Schema({ timestamps: true, collection: 'users' })
+@Schema({
+  timestamps: true,
+  collection: 'users',
+  toJSON: { virtuals: true },
+  toObject: { virtuals: true },
+})
 export class User extends Document {
   @ApiProperty({
     description: 'User email address',
@@ -46,6 +51,26 @@ export class User extends Document {
   })
   @Prop({ default: false })
   isOnboarded: boolean;
+
+  @Prop({ required: false, select: false })
+  password?: string;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);
+
+// Add methods to schema
+UserSchema.methods.comparePassword = async function (candidatePassword: string): Promise<boolean> {
+  // We'll implement the actual comparison in the service or here if we import bcrypt
+  // For better separation, we'll keep logic in service, but this method signature is good practice
+  return false;
+};
+
+// Virtual Populate
+UserSchema.virtual('onboarding', {
+  ref: 'Onboarding',
+  localField: '_id',
+  foreignField: 'userId',
+  justOne: true,
+});
+
+

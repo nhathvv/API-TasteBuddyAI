@@ -8,6 +8,7 @@ import { SeedModule } from './database/seeds/seed.module';
 import { FoodsModule } from './foods/foods.module';
 import { MenuModule } from '@/modules/menu/menu.module';
 import { connectOptions, connectUrl } from 'src/configs/mongo.cnf';
+import { AuthModule } from './auth/auth.module';
 
 @Module({
   imports: [
@@ -20,8 +21,9 @@ import { connectOptions, connectUrl } from 'src/configs/mongo.cnf';
     SeedModule,
     FoodsModule,
     MenuModule,
+    AuthModule,
   ],
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule {}
+export class AppModule { }

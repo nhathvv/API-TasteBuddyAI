@@ -86,6 +86,10 @@ export class ScanMenuDto {
   extractionMode?: 'quick' | 'full';
 
   @IsOptional()
+  @IsBoolean()
+  useCloudVision?: boolean = false;
+
+  @IsOptional()
   @IsArray()
   @IsIn(DIETARY_RESTRICTIONS, { each: true })
   dietaryRestrictions?: DietaryRestriction[] = [];

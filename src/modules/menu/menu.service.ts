@@ -21,8 +21,12 @@ import { IDishUnderstanding } from '@/shared/types';
 
 import { FoodImageValidationService } from '@/ai-agents/food-image-validation/food-image-validation.service';
 import { GeminiCoreService } from '@/shared/services/gemini-core.service';
+import { I18nService } from '@/shared/services/i18n.service';
+import { PriceAnalysisService } from '@/shared/services/price-analysis.service';
+import { JobQueueService, JobStage } from '@/shared/services/job-queue.service';
 
 import { DishRecognitionAgent } from '@/ai-agents/dish-recognition/dish-recognition.agent';
+import { Observable, interval, map, takeWhile, filter } from 'rxjs';
 
 @Injectable()
 export class MenuService {
@@ -30,6 +34,9 @@ export class MenuService {
 
   constructor(
     private readonly geminiService: GeminiCoreService,
+    private readonly i18nService: I18nService,
+    private readonly priceAnalysisService: PriceAnalysisService,
+    private readonly jobQueue: JobQueueService,
     private readonly visualExtractionAgent: VisualExtractionAgent,
     private readonly dishUnderstandingAgent: DishUnderstandingAgent,
     private readonly dishRecognitionAgent: DishRecognitionAgent,
@@ -79,7 +86,7 @@ export class MenuService {
       result,
       timestamp: Date.now(),
     });
-    
+
     this.logger.debug(`Cached: ${dishName} (total: ${this.dishAnalysisCache.size} dishes)`);
   }
 
@@ -112,6 +119,7 @@ export class MenuService {
       imageBuffer,
       dto.mimeType,
     );
+    console.log(validationResult);
     this.logger.log(`Image validated: ${validationResult.category} (${validationResult.confidence})`);
 
     if (!validationResult.isFoodImage || validationResult.confidence < 0.75) {
@@ -128,16 +136,87 @@ export class MenuService {
     let extractionResult: any = null;
 
     if (validationResult.category === 'menu_photo') {
-      // Case A: It's a Menu -> Run Visual Extraction (OCR + Structure)
+      // Case A: It's a Menu -> Try Cloud Vision first (if enabled), then fallback to Visual Extraction
       this.logger.log('Processing as MENU PHOTO...');
-      const extraction = await this.visualExtractionAgent.execute({
-        imageData: dto.imageData,
-        mimeType: dto.mimeType,
-        language: dto.language ?? 'vi',
-        extractionMode: dto.extractionMode ?? 'quick',
-      });
-      extractionResult = extraction;
-      menuItems = this.flattenMenuItems(extraction.menuSections);
+
+      // Try Cloud Vision first if enabled
+      if (dto.useCloudVision) {
+        this.logger.log('Using Cloud Vision for OCR extraction...');
+        try {
+          const visionResult = await this.cloudVisionAgent.execute({
+            imageData: dto.imageData,
+            mimeType: dto.mimeType,
+            features: [VisionFeature.TEXT_DETECTION, VisionFeature.LABEL_DETECTION],
+            maxResults: 20,
+            languageHints: [dto.language ?? 'vi'],
+          });
+
+          // Extract dish names from OCR
+          const dishNames = this.extractDishNamesFromOCR(
+            visionResult.fullText || '',
+            visionResult.textAnnotations || [],
+          );
+
+          if (dishNames.length > 0) {
+            this.logger.log(`Cloud Vision extracted ${dishNames.length} dish names: ${dishNames.join(', ')}`);
+
+            // Convert dish names to MenuItem format
+            menuItems = dishNames.map((name) => ({
+              name,
+              description: '',
+              price: 0,
+              category: 'Menu Items',
+              visualTags: [],
+            }));
+
+            extractionResult = {
+              menuSections: [
+                {
+                  sectionName: 'Cloud Vision Extracted Items',
+                  items: menuItems,
+                },
+              ],
+              metadata: {
+                totalItems: menuItems.length,
+                extractionQuality: 'high',
+                confidenceScore: visionResult.metadata.confidenceScore,
+                processingTime: visionResult.metadata.processingTime,
+                extractionMethod: 'cloud-vision',
+              },
+            };
+
+            this.logger.log('✅ Cloud Vision extraction successful, skipping Visual Extraction Agent');
+          } else {
+            this.logger.warn('Cloud Vision extracted 0 dish names, falling back to Visual Extraction Agent...');
+            throw new Error('No dishes extracted from Cloud Vision');
+          }
+        } catch (error) {
+          this.logger.warn(`Cloud Vision failed: ${error.message}, falling back to Visual Extraction Agent...`);
+
+          // Fallback to Visual Extraction Agent
+          const extraction = await this.visualExtractionAgent.execute({
+            imageData: dto.imageData,
+            mimeType: dto.mimeType,
+            language: dto.language ?? 'vi',
+            extractionMode: dto.extractionMode ?? 'quick',
+          });
+          extractionResult = extraction;
+          extractionResult.metadata.extractionMethod = 'visual-extraction-gemini';
+          menuItems = this.flattenMenuItems(extraction.menuSections);
+        }
+      } else {
+        // Use Visual Extraction Agent (Gemini) as default
+        this.logger.log('Using Visual Extraction Agent (Gemini) for menu extraction...');
+        const extraction = await this.visualExtractionAgent.execute({
+          imageData: dto.imageData,
+          mimeType: dto.mimeType,
+          language: dto.language ?? 'vi',
+          extractionMode: dto.extractionMode ?? 'quick',
+        });
+        extractionResult = extraction;
+        extractionResult.metadata.extractionMethod = 'visual-extraction-gemini';
+        menuItems = this.flattenMenuItems(extraction.menuSections);
+      }
     } else {
       // Case B: It's a Food Photo -> Run Dish Recognition (Vision)
       this.logger.log(`Processing as FOOD PHOTO (${validationResult.category})...`);
@@ -154,7 +233,7 @@ export class MenuService {
         category: 'Detected Dish',
         visualTags: [], // Visual tags not explicitly returned by new schema, can be inferred later
       }));
-
+      console.log(menuItems);
       extractionResult = {
         menuSections: [
           {
@@ -191,40 +270,201 @@ export class MenuService {
       this.logger.warn(`DUIA failed, proceeding with raw menu items: ${error.message}`);
     }
 
-    // 2. Run Safety & Compliance Agents in parallel
-    const { results, summary } = await this.orchestrator.runParallel([
-      {
+    console.log(enrichedDishes);
+
+    // 2. Run Safety & Compliance Agents in parallel (only if data is provided)
+    const agentsToRun: any[] = [];
+
+    // Only run AllergenSafetyAgent if user has allergens
+    const hasAllergens = dto.userAllergens && dto.userAllergens.length > 0;
+    if (hasAllergens) {
+      this.logger.log(`Adding AllergenSafetyAgent (${dto.userAllergens!.length} allergens to check)`);
+      agentsToRun.push({
         agent: this.allergenSafetyAgent,
         label: 'allergen-safety',
         input: {
           menuItems,
           enrichedItems: enrichedDishes.length > 0 ? enrichedDishes : undefined,
-          userAllergens: dto.userAllergens ?? [],
+          userAllergens: dto.userAllergens!,
           strictMode: dto.strictAllergenMode ?? true,
           language: dto.outputLanguage ?? 'en',
         },
-      },
-      {
+      });
+    } else {
+      this.logger.log('⚠️  Skipping AllergenSafetyAgent (no allergens provided)');
+    }
+
+    // Only run DietaryComplianceAgent if user has dietary restrictions
+    const hasDietaryRestrictions = dto.dietaryRestrictions && dto.dietaryRestrictions.length > 0;
+    if (hasDietaryRestrictions) {
+      this.logger.log(`Adding DietaryComplianceAgent (${dto.dietaryRestrictions!.length} restrictions to check)`);
+      agentsToRun.push({
         agent: this.dietaryComplianceAgent,
         label: 'dietary-compliance',
         input: {
           menuItems,
-          dietaryRestrictions: dto.dietaryRestrictions ?? [],
+          dietaryRestrictions: dto.dietaryRestrictions!,
           context: dto.context,
         },
-      },
-    ]);
+      });
+    } else {
+      this.logger.log('⚠️  Skipping DietaryComplianceAgent (no dietary restrictions provided)');
+    }
 
-    const allergenResult = results.find((result) => result.label === 'allergen-safety');
-    const complianceResult = results.find(
-      (result) => result.label === 'dietary-compliance',
-    );
+    // Run agents in parallel (if any)
+    let allergenResult: any = null;
+    let complianceResult: any = null;
+    let summary: any = null;
 
-    return {
+    if (agentsToRun.length > 0) {
+      this.logger.log(`Running ${agentsToRun.length} safety/compliance agents in parallel...`);
+      const orchestratorResult = await this.orchestrator.runParallel(agentsToRun);
+
+      allergenResult = orchestratorResult.results.find((result) => result.label === 'allergen-safety');
+      complianceResult = orchestratorResult.results.find(
+        (result) => result.label === 'dietary-compliance',
+      );
+      summary = orchestratorResult.summary;
+    } else {
+      this.logger.log('⚠️  No safety/compliance agents to run (no allergens or dietary restrictions)');
+    }
+
+    // Format response with i18n support
+    return this.formatScanResponse({
       extraction: extractionResult,
       allergenAnalysis: allergenResult?.output ?? null,
       dietaryCompliance: complianceResult?.output ?? null,
       timeline: summary,
+      language: dto.language ?? 'vi',
+      enrichedDishes, // Pass enriched dishes for price analysis
+    });
+  }
+
+  /**
+   * Format scan response with multi-language support, price conversion, and detailed analysis
+   */
+  private formatScanResponse(data: {
+    extraction: any;
+    allergenAnalysis: any;
+    dietaryCompliance: any;
+    timeline: any;
+    language: string;
+    enrichedDishes?: IDishUnderstanding[];
+  }) {
+    const { extraction, allergenAnalysis, dietaryCompliance, timeline, language, enrichedDishes } = data;
+
+    // Set i18n language
+    this.i18nService.setLanguage(language);
+
+    // Convert prices in menu items + Add price analysis
+    if (extraction && extraction.menuSections) {
+      extraction.menuSections = extraction.menuSections.map((section: any) => ({
+        ...section,
+        items: section.items.map((item: any) => {
+          // Find enriched dish data for this item
+          const enrichedDish = enrichedDishes?.find(
+            (dish) => dish.originalName.toLowerCase() === item.name.toLowerCase()
+          );
+
+          if (item.price && item.price > 0) {
+            const convertedPrice = this.i18nService.convertPrice(item.price, language);
+
+            // Perform price analysis if enriched dish data available
+            let priceAnalysis: any = null;
+            if (enrichedDish) {
+              priceAnalysis = this.priceAnalysisService.analyzeDishPrice(
+                item.price,
+                {
+                  name: enrichedDish.canonicalName || enrichedDish.originalName,
+                  ingredients: enrichedDish.ingredients,
+                  cuisineRegion: enrichedDish.cuisineRegion,
+                  baseDishType: enrichedDish.baseDishType,
+                },
+                language,
+              );
+            }
+
+            return {
+              ...item,
+              // Original price (always VND)
+              priceOriginal: {
+                value: item.price,
+                currency: 'VND',
+                symbol: '₫',
+                formatted: `${item.price.toLocaleString('vi-VN')}₫`,
+              },
+              // Converted price
+              price: convertedPrice.value,
+              priceFormatted: convertedPrice.formatted,
+              priceCurrency: convertedPrice.currency,
+              priceSymbol: convertedPrice.symbol,
+              // Price analysis
+              priceAnalysis,
+              // Enriched dish data
+              dishDetails: enrichedDish ? {
+                canonicalName: enrichedDish.canonicalName,
+                cuisineRegion: enrichedDish.cuisineRegion,
+                baseDishType: enrichedDish.baseDishType,
+                ingredients: enrichedDish.ingredients?.map(ing => ({
+                  name: ing.canonicalName || ing.name,
+                  isPrimary: ing.isPrimary,
+                })),
+                allergenSignals: enrichedDish.inferredAllergenSignals,
+                dietaryProfile: enrichedDish.dietaryProfile,
+                confidenceScore: enrichedDish.confidenceScore,
+              } : null,
+            };
+          }
+          return item;
+        }),
+      }));
+    }
+
+    // Translate status messages
+    const statusMessages = {
+      success: this.i18nService.t('menu.scan.completed', language),
+      extractionMethod: extraction?.metadata?.extractionMethod || 'unknown',
+      dishesFound: extraction?.metadata?.totalItems || 0,
+      dishesFoundMessage: `${extraction?.metadata?.totalItems || 0} ${this.i18nService.t('menu.scan.dishes_found', language)}`,
+    };
+
+    // Add allergen safety translations
+    if (allergenAnalysis) {
+      allergenAnalysis.translations = {
+        safe: this.i18nService.t('allergen.safe', language),
+        warning: this.i18nService.t('allergen.warning', language),
+        danger: this.i18nService.t('allergen.danger', language),
+        contains: this.i18nService.t('allergen.contains', language),
+        mayContain: this.i18nService.t('allergen.may_contain', language),
+        free: this.i18nService.t('allergen.free', language),
+      };
+    }
+
+    // Add dietary compliance translations
+    if (dietaryCompliance) {
+      dietaryCompliance.translations = {
+        compliant: this.i18nService.t('dietary.compliant', language),
+        nonCompliant: this.i18nService.t('dietary.non_compliant', language),
+        possiblyCompliant: this.i18nService.t('dietary.possibly_compliant', language),
+        unknown: this.i18nService.t('dietary.unknown', language),
+      };
+    }
+
+    return {
+      success: true,
+      message: statusMessages.success,
+      language: language,
+      data: {
+        extraction,
+        allergenAnalysis,
+        dietaryCompliance,
+        timeline,
+      },
+      meta: {
+        statusMessages,
+        currency: this.i18nService.getLanguage().currency,
+        locale: this.i18nService.getLanguage().locale,
+      },
     };
   }
 
@@ -405,7 +645,7 @@ export class MenuService {
 
     // Stage 1: Cloud Vision Analysis
     this.logger.log('[Pipeline Stage 1/3] Running Cloud Vision Agent...');
-    
+
     // Parse features if provided as strings
     let parsedFeatures: any[] | undefined;
     if (input.features && input.features.length > 0) {
@@ -413,7 +653,7 @@ export class MenuService {
         (f) => VisionFeature[f as keyof typeof VisionFeature],
       );
     }
-    
+
     const visionResult = await this.cloudVisionAgent.execute({
       imageData: input.imageData,
       mimeType: input.mimeType,
@@ -421,6 +661,8 @@ export class MenuService {
       maxResults: input.maxResults,
       languageHints: input.languageHints,
     });
+    //TODO: VISON
+    console.log(`visionResult`, visionResult);
 
     // Stage 2: Extract dish names from OCR text
     this.logger.log('[Pipeline Stage 2/3] Extracting dish names from OCR...');
@@ -451,7 +693,7 @@ export class MenuService {
     // NutritionCoach needs headroom, so keeping it at 4 is safer
     const MAX_DISHES = 4;
     const limitedDishNames = dishNames.slice(0, MAX_DISHES);
-    
+
     if (dishNames.length > MAX_DISHES) {
       this.logger.warn(
         `Limiting analysis to first ${MAX_DISHES} dishes (found ${dishNames.length} total)`,
@@ -511,7 +753,7 @@ export class MenuService {
 
     // Extract successful results
     const dishAnalysisResults = dishResults
-      .filter((result): result is Exclude<typeof result, null> => 
+      .filter((result): result is Exclude<typeof result, null> =>
         result !== null && result.dishes && result.dishes.length > 0
       )
       .map((result) => result.dishes[0]);
@@ -693,10 +935,10 @@ export class MenuService {
 
     // Deduplicate and limit to reasonable count
     const uniqueDishes = [...new Set(dishNames)];
-    
+
     // Sort by length (longer names are more likely to be actual dishes)
     const sortedDishes = uniqueDishes.sort((a, b) => b.length - a.length);
-    
+
     // Return top 15 most likely dishes
     return sortedDishes.slice(0, 15);
   }
@@ -810,7 +1052,7 @@ export class MenuService {
       // Try matching by both originalName and canonicalName
       const originalNameKey = dish.originalName.toLowerCase().trim();
       const canonicalNameKey = dish.canonicalName.toLowerCase().trim();
-      
+
       let allergenCheck = allergenMap.get(originalNameKey);
       if (!allergenCheck) {
         allergenCheck = allergenMap.get(canonicalNameKey);
@@ -820,13 +1062,13 @@ export class MenuService {
       } else {
         this.logger.debug(`Matched "${dish.originalName}" via original name`);
       }
-      
+
       if (!allergenCheck) {
         this.logger.warn(`❌ No allergen check found for "${dish.originalName}" (tried: "${originalNameKey}", "${canonicalNameKey}")`);
       } else {
         this.logger.log(`✅ Found allergen check for "${dish.originalName}": ${allergenCheck.riskLevel}`);
       }
-      
+
       return {
         dishId: dish.dishId,
         dishName: dish.originalName,
@@ -977,7 +1219,7 @@ export class MenuService {
     // Generate safe tags
     const commonAllergens = ['peanut', 'shellfish', 'egg', 'dairy', 'soy', 'gluten'];
     const detectedTypes = allergenCheck.identifiedAllergens?.map((a: any) => a.allergen.toLowerCase()) || [];
-    
+
     commonAllergens.forEach(allergen => {
       if (!detectedTypes.includes(allergen)) {
         safeTags.push(`✅ ${allergen.charAt(0).toUpperCase() + allergen.slice(1)}-free`);
@@ -1002,15 +1244,15 @@ export class MenuService {
     if (!riskLevel) return 'safe';
 
     const level = riskLevel.toUpperCase();
-    
+
     if (level === 'SAFE' || level === 'LOW_RISK') {
       return 'safe';
     }
-    
+
     if (level === 'MEDIUM_RISK' || level === 'HIGH_RISK') {
       return 'warning';
     }
-    
+
     if (level === 'SEVERE_RISK' || level === 'UNKNOWN_RISK') {
       return 'danger';
     }
@@ -1025,5 +1267,439 @@ export class MenuService {
         category: item.category ?? section.sectionName,
       })),
     );
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // PROGRESSIVE LOADING METHODS (Streaming & Micro-endpoints)
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * Async Scan Menu with Streaming Support
+   *
+   * Creates a job and processes asynchronously with progressive updates.
+   * Returns jobId immediately, processing happens in background.
+   *
+   * @param dto - Scan menu configuration
+   * @returns Job ID
+   */
+  async scanMenuAsync(dto: ScanMenuDto): Promise<string> {
+    // Create job
+    const jobId = this.jobQueue.createJob();
+    this.logger.log(`🚀 Async scan started: ${jobId}`);
+
+    // Process in background (don't await)
+    this.processScanMenuJob(jobId, dto).catch((error) => {
+      this.logger.error(`Job ${jobId} failed: ${error.message}`);
+      this.jobQueue.failJob(jobId, error.message);
+    });
+
+    return jobId;
+  }
+
+  /**
+   * Process scan menu job with progressive updates
+   *
+   * @param jobId - Job ID
+   * @param dto - Scan menu configuration
+   */
+  private async processScanMenuJob(jobId: string, dto: ScanMenuDto): Promise<void> {
+    const pipelineStartTime = Date.now();
+    try {
+      // Stage 1: Validation
+      this.jobQueue.updateStage(jobId, JobStage.VALIDATION, null, 'processing');
+      const validationStartTime = Date.now();
+
+      const imageBuffer = Buffer.from(dto.imageData, 'base64');
+      const validationResult = await this.foodImageValidationService.validateImage(
+        imageBuffer,
+        dto.mimeType,
+      );
+      const isValidFoodImage = validationResult.isFoodImage;
+
+      if (!isValidFoodImage) {
+        throw new Error('ERR_NOT_FOOD_IMAGE: Image is not a valid food/menu photo');
+      }
+
+      this.jobQueue.updateStage(jobId, JobStage.VALIDATION, {
+        isValid: true,
+        duration: Date.now() - validationStartTime,
+      }, 'completed');
+
+      // Stage 2: Extraction
+      this.jobQueue.updateStage(jobId, JobStage.EXTRACTION, null, 'processing');
+      let menuItems: MenuItem[] = [];
+      let extractionResult: any = null;
+
+      if (dto.useCloudVision) {
+        try {
+          const visionResult = await this.cloudVisionAgent.execute({
+            imageData: dto.imageData,
+            mimeType: dto.mimeType,
+            features: [VisionFeature.TEXT_DETECTION],
+          });
+
+          const dishNames = this.extractDishNamesFromOCR(
+            visionResult.fullText || '',
+            visionResult.textAnnotations || [],
+          );
+
+          if (dishNames.length > 0) {
+            menuItems = dishNames.map((name) => ({
+              name,
+              description: '',
+              price: 0,
+              category: 'Menu Items',
+              visualTags: [],
+            }));
+
+            extractionResult = {
+              menuSections: [{ sectionName: 'Cloud Vision Extracted Items', items: menuItems }],
+              metadata: {
+                totalItems: menuItems.length,
+                extractionMethod: 'cloud-vision',
+              },
+            };
+          }
+        } catch (error) {
+          this.logger.warn(`Cloud Vision failed: ${error.message}`);
+        }
+      }
+
+      // Fallback to Visual Extraction Agent
+      if (!extractionResult) {
+        extractionResult = await this.visualExtractionAgent.execute({
+          imageData: dto.imageData,
+          mimeType: dto.mimeType,
+          language: dto.language,
+          extractionMode: dto.extractionMode,
+        });
+        menuItems = this.flattenMenuItems(extractionResult.menuSections);
+      }
+
+      this.jobQueue.updateStage(jobId, JobStage.EXTRACTION, {
+        totalItems: menuItems.length,
+        extractionMethod: extractionResult.metadata?.extractionMethod || 'visual-extraction',
+      }, 'completed');
+
+      // Stage 3: Dish Understanding
+      this.jobQueue.updateStage(jobId, JobStage.DISH_UNDERSTANDING, null, 'processing');
+      let enrichedDishes: IDishUnderstanding[] = [];
+
+      if (menuItems.length > 0) {
+        try {
+          const dishResult = await this.dishUnderstandingAgent.execute({
+            dishes: menuItems.map((item, idx) => ({
+              dishId: `dish_${idx + 1}`,
+              dishName: item.name,
+              description: item.description,
+            })),
+          });
+
+          enrichedDishes = dishResult.dishes || [];
+          this.jobQueue.updateStage(jobId, JobStage.DISH_UNDERSTANDING, {
+            totalDishes: enrichedDishes.length,
+            averageConfidence: enrichedDishes.reduce((sum, d) => sum + (d.confidenceScore || 0), 0) / enrichedDishes.length,
+          }, 'completed');
+        } catch (error) {
+          this.logger.warn(`Dish understanding failed: ${error.message}`);
+          this.jobQueue.failStage(jobId, JobStage.DISH_UNDERSTANDING, error.message);
+        }
+      }
+
+      // Stage 4: Allergen Analysis (if allergens provided)
+      let allergenAnalysis: any = null;
+      if (dto.userAllergens && dto.userAllergens.length > 0) {
+        this.jobQueue.updateStage(jobId, JobStage.ALLERGEN_ANALYSIS, null, 'processing');
+        try {
+          allergenAnalysis = await this.allergenSafetyAgent.execute({
+            menuItems,
+            enrichedItems: enrichedDishes,
+            userAllergens: dto.userAllergens,
+            strictMode: dto.strictAllergenMode,
+            language: dto.outputLanguage,
+          });
+
+          this.jobQueue.updateStage(jobId, JobStage.ALLERGEN_ANALYSIS, {
+            safeItems: allergenAnalysis.summary.safeItems,
+            unsafeItems: allergenAnalysis.summary.unsafeItems,
+          }, 'completed');
+        } catch (error) {
+          this.logger.error(`Allergen analysis failed: ${error.message}`);
+          this.jobQueue.failStage(jobId, JobStage.ALLERGEN_ANALYSIS, error.message);
+        }
+      }
+
+      // Stage 5: Dietary Compliance (if restrictions provided)
+      let dietaryCompliance: any = null;
+      if (dto.dietaryRestrictions && dto.dietaryRestrictions.length > 0) {
+        this.jobQueue.updateStage(jobId, JobStage.DIETARY_ANALYSIS, null, 'processing');
+        try {
+          dietaryCompliance = await this.dietaryComplianceAgent.execute({
+            menuItems,
+            dietaryRestrictions: dto.dietaryRestrictions as any[],
+          });
+
+          this.jobQueue.updateStage(jobId, JobStage.DIETARY_ANALYSIS, {
+            compliantCount: dietaryCompliance.summary.compliantCount,
+            nonCompliantCount: dietaryCompliance.summary.nonCompliantCount,
+          }, 'completed');
+        } catch (error) {
+          this.logger.error(`Dietary compliance failed: ${error.message}`);
+          this.jobQueue.failStage(jobId, JobStage.DIETARY_ANALYSIS, error.message);
+        }
+      }
+
+      // Stage 6: Price Analysis & Formatting
+      this.jobQueue.updateStage(jobId, JobStage.PRICE_ANALYSIS, null, 'processing');
+      const formattedResult = this.formatScanResponse({
+        extraction: extractionResult,
+        enrichedDishes,
+        allergenAnalysis,
+        dietaryCompliance,
+        timeline: { totalTime: Date.now() - pipelineStartTime, agents: 0 },
+        language: dto.outputLanguage || dto.language || 'vi',
+      });
+      this.jobQueue.updateStage(jobId, JobStage.PRICE_ANALYSIS, null, 'completed');
+
+      // Job completed
+      this.jobQueue.completeJob(jobId, formattedResult);
+      this.logger.log(`✅ Job ${jobId} completed successfully`);
+    } catch (error) {
+      this.logger.error(`Job ${jobId} failed: ${error.message}`);
+      this.jobQueue.failJob(jobId, error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Stream Job Progress (Server-Sent Events)
+   *
+   * @param jobId - Job ID
+   * @returns Observable of MessageEvents
+   */
+  streamJobProgress(jobId: string): Observable<MessageEvent> {
+    const job = this.jobQueue.getJob(jobId);
+    if (!job) {
+      throw new Error(`Job not found: ${jobId}`);
+    }
+
+    return new Observable<MessageEvent>((observer) => {
+      // Send initial state
+      observer.next({
+        data: JSON.stringify({ type: 'connected', jobId }),
+      } as MessageEvent);
+
+      // Listen to job events
+      const callback = (event: any) => {
+        observer.next({
+          data: JSON.stringify(event),
+        } as MessageEvent);
+
+        // Complete stream when job is done
+        if (event.type === 'job_completed' || event.type === 'job_failed') {
+          setTimeout(() => observer.complete(), 100);
+        }
+      };
+
+      this.jobQueue.on(jobId, callback);
+
+      // Cleanup on unsubscribe
+      return () => {
+        this.jobQueue.off(jobId, callback);
+      };
+    });
+  }
+
+  /**
+   * Get Job Status
+   *
+   * @param jobId - Job ID
+   * @returns Job status
+   */
+  getJobStatus(jobId: string) {
+    return this.jobQueue.getJob(jobId);
+  }
+
+  /**
+   * Extract Menu Items Only (Fast endpoint)
+   *
+   * @param params - Extraction parameters
+   * @returns Extraction result
+   */
+  async extractMenuOnly(params: {
+    imageData: string;
+    mimeType: string;
+    language: string;
+    useCloudVision: boolean;
+  }) {
+    const startTime = Date.now();
+
+    // Validate food image
+    const imageBuffer = Buffer.from(params.imageData, 'base64');
+    const validationResult = await this.foodImageValidationService.validateImage(
+      imageBuffer,
+      params.mimeType,
+    );
+    const isValidFoodImage = validationResult.isFoodImage;
+
+    if (!isValidFoodImage) {
+      throw new BadRequestException('Image is not a valid food/menu photo');
+    }
+
+    let result: any = null;
+
+    // Try Cloud Vision if enabled
+    if (params.useCloudVision) {
+      try {
+        const visionResult = await this.cloudVisionAgent.execute({
+          imageData: params.imageData,
+          mimeType: params.mimeType,
+          features: [VisionFeature.TEXT_DETECTION],
+        });
+
+        const dishNames = this.extractDishNamesFromOCR(
+          visionResult.fullText || '',
+          visionResult.textAnnotations || [],
+        );
+
+        if (dishNames.length > 0) {
+          result = {
+            menuSections: [
+              {
+                sectionName: 'Extracted Items',
+                items: dishNames.map((name) => ({
+                  name,
+                  description: '',
+                  price: 0,
+                  category: 'Menu Items',
+                })),
+              },
+            ],
+            metadata: {
+              totalItems: dishNames.length,
+              extractionMethod: 'cloud-vision',
+              processingTime: Date.now() - startTime,
+            },
+          };
+        }
+      } catch (error) {
+        this.logger.warn(`Cloud Vision extraction failed: ${error.message}`);
+      }
+    }
+
+    // Fallback to Visual Extraction Agent
+    if (!result) {
+      result = await this.visualExtractionAgent.execute({
+        imageData: params.imageData,
+        mimeType: params.mimeType,
+        language: params.language,
+        extractionMode: 'quick',
+      });
+
+      if (result.metadata) {
+        result.metadata.processingTime = Date.now() - startTime;
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * Analyze Dishes (Ingredients & Cooking Methods)
+   *
+   * @param menuItems - Menu items array
+   * @param language - Language code
+   * @returns Dish understanding results
+   */
+  async analyzeDishes(menuItems: any[], language: string = 'vi') {
+    if (!menuItems || menuItems.length === 0) {
+      throw new BadRequestException('menuItems array is required');
+    }
+
+    const startTime = Date.now();
+
+    const result = await this.dishUnderstandingAgent.execute({
+      dishes: menuItems.map((item, idx) => ({
+        dishId: `dish_${idx + 1}`,
+        dishName: item.name,
+        description: item.description,
+      })),
+    });
+
+    return {
+      dishes: result.dishes,
+      metadata: {
+        totalDishes: result.dishes.length,
+        averageConfidence:
+          result.dishes.reduce((sum, d) => sum + (d.confidenceScore || 0), 0) /
+          result.dishes.length,
+        processingTime: Date.now() - startTime,
+      },
+    };
+  }
+
+  /**
+   * Analyze Allergen Safety
+   *
+   * @param params - Allergen analysis parameters
+   * @returns Allergen safety results
+   */
+  async analyzeAllergens(params: {
+    menuItems: any[];
+    enrichedDishes: any[];
+    allergens: any[];
+    language: string;
+  }) {
+    if (!params.allergens || params.allergens.length === 0) {
+      throw new BadRequestException('allergens array is required');
+    }
+
+    const startTime = Date.now();
+
+    const result = await this.allergenSafetyAgent.execute({
+      menuItems: params.menuItems || [],
+      enrichedItems: params.enrichedDishes || [],
+      userAllergens: params.allergens,
+      strictMode: true,
+      language: params.language || 'vi',
+    });
+
+    return {
+      ...result,
+      metadata: {
+        processingTime: Date.now() - startTime,
+      },
+    };
+  }
+
+  /**
+   * Analyze Dietary Compliance
+   *
+   * @param params - Dietary analysis parameters
+   * @returns Dietary compliance results
+   */
+  async analyzeDietary(params: {
+    menuItems: any[];
+    enrichedDishes: any[];
+    dietaryRestrictions: string[];
+    language: string;
+  }) {
+    if (!params.dietaryRestrictions || params.dietaryRestrictions.length === 0) {
+      throw new BadRequestException('dietaryRestrictions array is required');
+    }
+
+    const startTime = Date.now();
+
+    const result = await this.dietaryComplianceAgent.execute({
+      menuItems: params.menuItems || [],
+      dietaryRestrictions: params.dietaryRestrictions as any[],
+    });
+
+    return {
+      ...result,
+      metadata: {
+        processingTime: Date.now() - startTime,
+      },
+    };
   }
 }

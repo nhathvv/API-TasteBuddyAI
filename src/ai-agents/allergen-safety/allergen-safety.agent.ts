@@ -32,8 +32,8 @@ export class AllergenSafetyAgent extends BaseAIAgent<CSAAInput, CSAAOutput> {
   constructor(geminiService: GeminiCoreService) {
     super(geminiService, {
       name: 'AllergenSafetyAgent',
-      modelType: 'pro', // Use Pro for complex reasoning
-      timeout: 20000, // 20 seconds for thorough analysis
+      modelType: 'flash', // Use Flash for faster analysis (5x speed) - Pro was too slow
+      timeout: 45000, // 45 seconds (increased from 20s due to complex reasoning needs)
       cacheable: false, // User allergen profiles change
       systemInstruction: `You are a specialized Allergen Safety Expert for Vietnamese cuisine.
 
@@ -343,7 +343,7 @@ REMEMBER: You are protecting lives. Be thorough, be cautious, be clear.`,
     let prompt = `ALLERGEN SAFETY ANALYSIS REQUEST
 
 User Allergen Profile:
-${userAllergens.map((a) => `- ${a.type.toUpperCase()}: ${a.severity} reaction`).join('\n')}
+${userAllergens.map((a) => `- ${(a.type || 'unknown').toUpperCase()}: ${a.severity || 'unknown'} reaction`).join('\n')}
 
 Analysis Mode: ${strictMode !== false ? 'STRICT (flag even trace amounts)' : 'FLEXIBLE (major allergens only)'}
 Output Language: ${language || 'en'}

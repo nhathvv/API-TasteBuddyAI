@@ -71,6 +71,8 @@ export abstract class BaseAIAgent<TInput, TOutput>
         this.process(input),
         this.config.timeout ?? 30000,
       );
+      console.log(result);
+      console.log(`Output: ${JSON.stringify(result).substring(0, 200)}...`);
 
       // Step 3: Validate output
       if (!this.validateOutput(result)) {

@@ -2,12 +2,19 @@ import {
   Body,
   Controller,
   Post,
+  Get,
+  Param,
+  Sse,
   UploadedFile,
   UseInterceptors,
   BadRequestException,
+  UsePipes,
+  ValidationPipe,
+  NotFoundException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody, ApiConsumes } from '@nestjs/swagger';
+import { Observable, interval, map, takeWhile } from 'rxjs';
 import { MenuService } from './menu.service';
 import { ScanMenuDto } from './dto/scan-menu.dto';
 import {
@@ -17,6 +24,7 @@ import {
   TestVisualExtractionDto,
 } from './dto/test-agents.dto';
 import { TestDishUnderstandingDto } from './dto/test-dish-understanding.dto';
+import { UploadScanDto } from './dto/upload-scan.dto';
 
 @ApiTags('Menu & AI Agents')
 @Controller('menu')
@@ -566,93 +574,209 @@ export class MenuController {
     });
   }
 
+  /**
+   * Upload Image for Full Menu Scan (Professional Upload Endpoint)
+   *
+   * This endpoint provides a comprehensive menu analysis pipeline with:
+   * - Cloud Vision OCR (optional, faster) or Visual Extraction (Gemini-based)
+   * - Dish Understanding (ingredient analysis)
+   * - Allergen Safety Check (if allergens provided)
+   * - Dietary Compliance Check (if restrictions provided)
+   *
+   * Supports user profile for personalized nutrition recommendations.
+   *
+   * @param file - Uploaded image file
+   * @param dto - Upload scan configuration
+   */
   @Post('upload/scan')
-  @UseInterceptors(FileInterceptor('image'))
+  @UseInterceptors(FileInterceptor('image', {
+    limits: {
+      fileSize: 10 * 1024 * 1024, // 10MB limit
+    },
+    fileFilter: (req, file, cb) => {
+      const validMimeTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/heic'];
+      if (validMimeTypes.includes(file.mimetype)) {
+        cb(null, true);
+      } else {
+        cb(new BadRequestException(`Invalid file type. Accepts: ${validMimeTypes.join(', ')}`), false);
+      }
+    },
+  }))
+  @UsePipes(new ValidationPipe({
+    transform: true,
+    whitelist: true,
+    forbidNonWhitelisted: false, // Allow extra fields (like _id from MongoDB)
+    transformOptions: {
+      enableImplicitConversion: true,
+    },
+  }))
   @ApiConsumes('multipart/form-data')
   @ApiOperation({
-    summary: 'Upload Image for Full Scan',
-    description:
-      'Upload menu image and run full analysis pipeline with allergen safety and dietary compliance checks.',
+    summary: 'Upload Image for Full Menu Scan (Professional)',
+    description: `Upload menu/food image and run comprehensive analysis pipeline.
+
+**Features:**
+- 🔍 Cloud Vision OCR (fast, accurate) or Gemini Visual Extraction
+- 🍲 Dish Understanding (ingredients, cooking methods, allergens)
+- ⚠️ Allergen Safety Check (personalized)
+- 🥗 Dietary Compliance (vegan, halal, keto, etc.)
+- 📊 Nutrition Analysis (optional, with user profile)
+
+**Workflow:**
+1. Image Validation (food/menu photo check)
+2. Text Extraction (OCR via Cloud Vision or Gemini)
+3. Dish Understanding (AI-powered ingredient analysis)
+4. Safety Checks (allergen + dietary restrictions)
+
+**Pro Tips:**
+- Use \`useCloudVision: true\` for faster OCR (requires API key)
+- Provide \`allergens\` array for safety analysis
+- Include \`nutritionGoals\` for personalized recommendations
+- Set \`language: "en"\` for English output`,
   })
-  @ApiBody({
-    schema: {
-      type: 'object',
-      properties: {
-        image: {
-          type: 'string',
-          format: 'binary',
-          description: 'Menu image file',
-        },
-        language: {
-          type: 'string',
-          default: 'vi',
-        },
-        userAllergens: {
-          type: 'string',
-          description: 'JSON string of allergens, e.g. [{"type":"shellfish","severity":"severe"}]',
-          example: '[{"type":"shellfish","severity":"severe"}]',
-        },
-        dietaryRestrictions: {
-          type: 'string',
-          description: 'JSON string array, e.g. ["vegan","gluten-free"]',
-          example: '["vegan"]',
-        },
-        strictAllergenMode: {
-          type: 'boolean',
-          default: true,
-        },
-      },
-      required: ['image'],
-    },
-  })
+  @ApiBody({ type: UploadScanDto })
   @ApiResponse({
     status: 200,
     description: 'Full scan completed successfully',
+    schema: {
+      example: {
+        extraction: {
+          menuSections: [
+            {
+              sectionName: 'Cloud Vision Extracted Items',
+              items: [
+                { name: 'Phở Bò', category: 'Menu Items' },
+                { name: 'Bún Chả', category: 'Menu Items' },
+              ],
+            },
+          ],
+          metadata: {
+            totalItems: 2,
+            extractionMethod: 'cloud-vision',
+            confidenceScore: 0.94,
+            processingTime: 850,
+          },
+        },
+        allergenAnalysis: {
+          summary: {
+            safeItems: 1,
+            unsafeItems: 1,
+            overallRisk: 'medium',
+          },
+          analysis: [
+            {
+              dishName: 'Phở Bò',
+              riskLevel: 'SAFE',
+              identifiedAllergens: [],
+            },
+          ],
+        },
+        dietaryCompliance: null,
+        timeline: {
+          totalTime: 9500,
+          agents: 1,
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Invalid input (validation errors)',
+    schema: {
+      example: {
+        statusCode: 400,
+        message: [
+          'allergens.0.type must be one of: peanuts, tree-nuts, shellfish...',
+          'nutritionGoals.age must not be less than 1',
+        ],
+        error: 'Bad Request',
+      },
+    },
+  })
+  @ApiResponse({
+    status: 413,
+    description: 'Image too large (max 10MB)',
   })
   async uploadFullScan(
     @UploadedFile() file: Express.Multer.File,
-    @Body('language') language?: string,
-    @Body('userAllergens') userAllergensStr?: string,
-    @Body('dietaryRestrictions') dietaryRestrictionsStr?: string,
-    @Body('strictAllergenMode') strictAllergenMode?: string,
+    @Body() dto: UploadScanDto,
   ) {
+    // 1. Validate file upload
     if (!file) {
-      throw new BadRequestException('No image file uploaded');
+      throw new BadRequestException({
+        code: 'ERR_NO_FILE',
+        message: 'No image file uploaded',
+        hint: 'Make sure the field name is "image" in your form-data',
+      });
     }
 
-    // Convert buffer to base64
+    // 2. Validate file size (additional check)
+    const MAX_SIZE = 10 * 1024 * 1024; // 10MB
+    if (file.size > MAX_SIZE) {
+      throw new BadRequestException({
+        code: 'ERR_FILE_TOO_LARGE',
+        message: `Image size (${(file.size / 1024 / 1024).toFixed(2)}MB) exceeds limit (10MB)`,
+        hint: 'Please compress the image or use a smaller file',
+      });
+    }
+
+    // 3. Convert buffer to base64
     const base64Image = file.buffer.toString('base64');
 
-    // Parse JSON strings
-    let userAllergens = [];
-    let dietaryRestrictions = [];
-
-    try {
-      if (userAllergensStr) {
-        userAllergens = JSON.parse(userAllergensStr);
-      }
-    } catch (e) {
-      throw new BadRequestException('Invalid userAllergens JSON format');
-    }
-
-    try {
-      if (dietaryRestrictionsStr) {
-        dietaryRestrictions = JSON.parse(dietaryRestrictionsStr);
-      }
-    } catch (e) {
-      throw new BadRequestException('Invalid dietaryRestrictions JSON format');
-    }
-
-    // Call full scan
-    return this.menuService.scanMenu({
+    // 4. Build ScanMenuDto from UploadScanDto
+    const scanDto: ScanMenuDto = {
       imageData: base64Image,
       mimeType: file.mimetype,
-      language: language || 'vi',
-      extractionMode: 'quick',
-      userAllergens,
-      dietaryRestrictions,
-      strictAllergenMode: strictAllergenMode === 'true' || strictAllergenMode === undefined,
-    });
+      language: dto.language ?? 'vi',
+      extractionMode: dto.extractionMode ?? 'quick',
+      useCloudVision: dto.useCloudVision ?? false,
+      context: dto.context,
+      strictAllergenMode: dto.strictAllergenMode ?? true,
+      outputLanguage: dto.language ?? 'en',
+      userAllergens: dto.allergens?.map(a => ({
+        type: a.type,
+        severity: a.severity,
+      })) ?? [],
+      // Map dietary restrictions
+      dietaryRestrictions: dto.dietaryPreferences ?? [],
+    };
+
+    // 5. Log request details (for debugging)
+    this.menuService['logger'].log(`Upload scan request:
+      - File: ${file.originalname} (${(file.size / 1024).toFixed(2)}KB)
+      - Mime: ${file.mimetype}
+      - Language: ${dto.language ?? 'vi'}
+      - Cloud Vision: ${dto.useCloudVision ? 'enabled' : 'disabled'}
+      - Allergens: ${dto.allergens?.length ?? 0} items
+      - Dietary: ${dto.dietaryPreferences?.length ?? 0} restrictions
+      - Nutrition Profile: ${dto.nutritionGoals ? 'provided' : 'not provided'}
+    `);
+
+    // 6. Execute scan
+    try {
+      return await this.menuService.scanMenu(scanDto);
+    } catch (error) {
+      // Enhanced error handling
+      if (error.message?.includes('CLOUD_VISION')) {
+        throw new BadRequestException({
+          code: 'ERR_CLOUD_VISION_FAILED',
+          message: 'Cloud Vision API failed',
+          details: error.message,
+          hint: 'Try setting useCloudVision: false to use Gemini instead',
+        });
+      }
+
+      if (error.message?.includes('ERR_NOT_FOOD_IMAGE')) {
+        throw new BadRequestException({
+          code: 'ERR_NOT_FOOD_IMAGE',
+          message: 'Image is not a valid food/menu photo',
+          hint: 'Please upload a clear photo of a menu or food dish',
+        });
+      }
+
+      // Re-throw original error
+      throw error;
+    }
   }
 
   @Post('upload/vision-test')
@@ -838,5 +962,345 @@ export class MenuController {
         languageHints,
       });
     }
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // PROGRESSIVE LOADING ENDPOINTS (STREAMING & MICRO-ENDPOINTS)
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * Upload Scan with Async Processing (Returns JobID immediately)
+   *
+   * Strategy: Fast initial response → Stream results as agents complete
+   * Timeline:
+   * - 0s: Upload accepted, jobId returned
+   * - 2-5s: Extraction complete (streamed)
+   * - 5-8s: Dish understanding complete (streamed)
+   * - 8-16s: Safety analysis complete (streamed)
+   *
+   * @param file - Uploaded image file
+   * @param dto - Upload scan configuration
+   */
+  @Post('upload/scan-async')
+  @UseInterceptors(FileInterceptor('image', {
+    limits: { fileSize: 10 * 1024 * 1024 },
+    fileFilter: (req, file, cb) => {
+      const validMimeTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/heic'];
+      if (validMimeTypes.includes(file.mimetype)) {
+        cb(null, true);
+      } else {
+        cb(new BadRequestException('Invalid file type'), false);
+      }
+    },
+  }))
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({
+    summary: 'Upload Scan (Async with JobID)',
+    description: `Upload menu image and receive jobId immediately. Use SSE stream endpoint to receive progressive updates.
+
+**Workflow:**
+1. Upload image → Get jobId (< 1s)
+2. Listen to /menu/jobs/:jobId/stream → Receive updates in real-time
+3. Extract menu items (2-5s)
+4. Understand dishes (5-8s)
+5. Analyze allergens (8-16s)
+
+**Benefits:**
+- ✅ Immediate response (no waiting)
+- ✅ Progressive UI updates
+- ✅ Real-time feedback`,
+  })
+  @ApiBody({ type: UploadScanDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Job created successfully',
+    schema: {
+      example: {
+        success: true,
+        message: 'Job created successfully',
+        jobId: 'job_1234567890_abc123',
+        streamUrl: '/menu/jobs/job_1234567890_abc123/stream',
+        statusUrl: '/menu/jobs/job_1234567890_abc123',
+      },
+    },
+  })
+  async uploadScanAsync(
+    @UploadedFile() file: Express.Multer.File,
+    @Body() dto: UploadScanDto,
+  ) {
+    if (!file) {
+      throw new BadRequestException('No image file uploaded');
+    }
+
+    const base64Image = file.buffer.toString('base64');
+
+    // Create scan DTO
+    const scanDto: ScanMenuDto = {
+      imageData: base64Image,
+      mimeType: file.mimetype,
+      language: dto.language ?? 'vi',
+      extractionMode: dto.extractionMode ?? 'quick',
+      useCloudVision: dto.useCloudVision ?? false,
+      context: dto.context,
+      strictAllergenMode: dto.strictAllergenMode ?? true,
+      outputLanguage: dto.language ?? 'en',
+      userAllergens: dto.allergens?.map(a => ({ type: a.type, severity: a.severity })) ?? [],
+      dietaryRestrictions: dto.dietaryPreferences ?? [],
+    };
+
+    // Create job and start async processing
+    const jobId = await this.menuService.scanMenuAsync(scanDto);
+
+    return {
+      success: true,
+      message: 'Job created successfully',
+      jobId,
+      streamUrl: `/menu/jobs/${jobId}/stream`,
+      statusUrl: `/menu/jobs/${jobId}`,
+      hint: 'Use Server-Sent Events (SSE) to listen to /menu/jobs/:jobId/stream for real-time updates',
+    };
+  }
+
+  /**
+   * Stream Job Progress (Server-Sent Events)
+   *
+   * SSE endpoint that streams progressive updates as agents complete.
+   * Frontend can listen to this and update UI in real-time.
+   *
+   * @param jobId - Job ID from upload-async endpoint
+   */
+  @Sse('jobs/:jobId/stream')
+  @ApiOperation({
+    summary: 'Stream Job Progress (SSE)',
+    description: `Server-Sent Events (SSE) stream for real-time job updates.
+
+**Event Types:**
+- \`stage_update\`: Agent stage completed (extraction, dish_understanding, allergen_analysis, etc.)
+- \`job_completed\`: Full analysis complete
+- \`job_failed\`: Job failed with error
+
+**Frontend Example:**
+\`\`\`javascript
+const eventSource = new EventSource('/menu/jobs/{jobId}/stream');
+
+eventSource.addEventListener('stage_update', (e) => {
+  const data = JSON.parse(e.data);
+  console.log('Stage completed:', data.stage, data.data);
+  // Update UI progressively
+});
+
+eventSource.addEventListener('job_completed', (e) => {
+  const result = JSON.parse(e.data);
+  console.log('Full result:', result);
+  eventSource.close();
+});
+\`\`\``,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'SSE stream of job updates',
+  })
+  streamJobProgress(@Param('jobId') jobId: string): Observable<MessageEvent> {
+    return this.menuService.streamJobProgress(jobId);
+  }
+
+  /**
+   * Get Job Status (Polling)
+   *
+   * Polling endpoint for clients that don't support SSE.
+   *
+   * @param jobId - Job ID
+   */
+  @Get('jobs/:jobId')
+  @ApiOperation({
+    summary: 'Get Job Status (Polling)',
+    description: `Get current job status and result.
+
+**Status Values:**
+- \`pending\`: Job created, not started
+- \`processing\`: Job in progress
+- \`completed\`: Job finished successfully
+- \`failed\`: Job failed with error
+
+**Usage:**
+Poll this endpoint every 2-3 seconds until status is 'completed' or 'failed'.`,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Job status retrieved',
+    schema: {
+      example: {
+        id: 'job_1234567890_abc123',
+        status: 'processing',
+        currentStage: 'dish_understanding',
+        stages: {
+          extraction: {
+            status: 'completed',
+            duration: 2500,
+            data: { totalItems: 5 },
+          },
+          dish_understanding: {
+            status: 'processing',
+            startTime: 1234567890123,
+          },
+        },
+        result: null,
+        createdAt: 1234567890000,
+        updatedAt: 1234567892500,
+      },
+    },
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Job not found',
+  })
+  async getJobStatus(@Param('jobId') jobId: string) {
+    const job = this.menuService.getJobStatus(jobId);
+    if (!job) {
+      throw new NotFoundException(`Job not found: ${jobId}`);
+    }
+    return job;
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // MICRO-ENDPOINTS (Individual Analysis Steps)
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * Extract Menu Items Only (Fast - 2-5s)
+   *
+   * Returns only extraction result without any AI analysis.
+   * Use this for immediate feedback to users.
+   */
+  @Post('analysis/extraction')
+  @UseInterceptors(FileInterceptor('image', {
+    limits: { fileSize: 10 * 1024 * 1024 },
+  }))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({
+    summary: 'Extract Menu Items (Fast)',
+    description: `Extract menu items from image (2-5s response time).
+
+**Use Case:** Show users the menu items immediately while running other analysis in background.
+
+**Timeline:** 2-5 seconds`,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Extraction completed',
+  })
+  async extractMenuOnly(
+    @UploadedFile() file: Express.Multer.File,
+    @Body('language') language?: string,
+    @Body('useCloudVision') useCloudVision?: boolean,
+  ) {
+    if (!file) {
+      throw new BadRequestException('No image file uploaded');
+    }
+
+    const base64Image = file.buffer.toString('base64');
+
+    return this.menuService.extractMenuOnly({
+      imageData: base64Image,
+      mimeType: file.mimetype,
+      language: language || 'vi',
+      useCloudVision: useCloudVision === true,
+    });
+  }
+
+  /**
+   * Analyze Dishes (Ingredients & Cooking Methods)
+   *
+   * Requires menu items from extraction step.
+   */
+  @Post('analysis/dishes')
+  @ApiOperation({
+    summary: 'Analyze Dishes (Ingredients)',
+    description: `Analyze dishes to identify ingredients, cooking methods, and allergen signals.
+
+**Timeline:** 2-3 seconds per dish (parallel processing)`,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Dish analysis completed',
+  })
+  async analyzeDishes(
+    @Body('menuItems') menuItems: any[],
+    @Body('language') language?: string,
+  ) {
+    if (!menuItems || menuItems.length === 0) {
+      throw new BadRequestException('menuItems array is required');
+    }
+
+    return this.menuService.analyzeDishes(menuItems, language || 'vi');
+  }
+
+  /**
+   * Analyze Allergen Safety
+   *
+   * Requires enriched dishes from analyzeDishes step.
+   */
+  @Post('analysis/allergens')
+  @ApiOperation({
+    summary: 'Analyze Allergen Safety',
+    description: `Check dishes for allergen risks.
+
+**Timeline:** 3-8 seconds`,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Allergen analysis completed',
+  })
+  async analyzeAllergens(
+    @Body('menuItems') menuItems: any[],
+    @Body('enrichedDishes') enrichedDishes: any[],
+    @Body('allergens') allergens: any[],
+    @Body('language') language?: string,
+  ) {
+    if (!allergens || allergens.length === 0) {
+      throw new BadRequestException('allergens array is required');
+    }
+
+    return this.menuService.analyzeAllergens({
+      menuItems: menuItems || [],
+      enrichedDishes: enrichedDishes || [],
+      allergens,
+      language: language || 'vi',
+    });
+  }
+
+  /**
+   * Analyze Dietary Compliance
+   *
+   * Requires enriched dishes from analyzeDishes step.
+   */
+  @Post('analysis/dietary')
+  @ApiOperation({
+    summary: 'Analyze Dietary Compliance',
+    description: `Check dishes for dietary compliance (vegan, halal, keto, etc.).
+
+**Timeline:** 3-5 seconds`,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Dietary compliance completed',
+  })
+  async analyzeDietary(
+    @Body('menuItems') menuItems: any[],
+    @Body('enrichedDishes') enrichedDishes: any[],
+    @Body('dietaryRestrictions') dietaryRestrictions: string[],
+    @Body('language') language?: string,
+  ) {
+    if (!dietaryRestrictions || dietaryRestrictions.length === 0) {
+      throw new BadRequestException('dietaryRestrictions array is required');
+    }
+
+    return this.menuService.analyzeDietary({
+      menuItems: menuItems || [],
+      enrichedDishes: enrichedDishes || [],
+      dietaryRestrictions,
+      language: language || 'vi',
+    });
   }
 }

@@ -1,6 +1,9 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { GeminiCoreService } from '@/shared/services/gemini-core.service';
+import { I18nService } from '@/shared/services/i18n.service';
+import { PriceAnalysisService } from '@/shared/services/price-analysis.service';
+import { JobQueueService } from '@/shared/services/job-queue.service';
 import { VisualExtractionAgent } from './visual-extraction/visual-extraction.agent';
 import { AllergenSafetyAgent } from './allergen-safety/allergen-safety.agent';
 import { NutritionCoachAgent } from './nutrition-coach/nutrition-coach.agent';
@@ -31,6 +34,9 @@ import { CloudVisionAgent } from './cloud-vision/cloud-vision.agent';
   imports: [ConfigModule, FoodImageValidationModule],
   providers: [
     GeminiCoreService,
+    I18nService,
+    PriceAnalysisService,
+    JobQueueService,
     VisualExtractionAgent,
     DishUnderstandingAgent,
     DishRecognitionAgent,
@@ -42,6 +48,9 @@ import { CloudVisionAgent } from './cloud-vision/cloud-vision.agent';
   ],
   exports: [
     GeminiCoreService,
+    I18nService,
+    PriceAnalysisService,
+    JobQueueService,
     VisualExtractionAgent,
     DishUnderstandingAgent,
     DishRecognitionAgent,

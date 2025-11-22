@@ -186,18 +186,19 @@ export class UploadScanDto {
   @IsIn(['vi', 'en'])
   language?: string;
 
-  @ApiPropertyOptional({
-    description: 'Use Cloud Vision API for OCR (faster, more accurate)',
-    example: false,
-    default: false,
-  })
-  @IsOptional()
-  @Transform(({ value }) => value === 'true' || value === true)
-  @IsBoolean()
-  useCloudVision?: boolean;
+  // DEPRECATED: useCloudVision removed - now always uses Gemini Vision
+  // @ApiPropertyOptional({
+  //   description: 'Use Cloud Vision API for OCR (faster, more accurate)',
+  //   example: false,
+  //   default: false,
+  // })
+  // @IsOptional()
+  // @Transform(({ value }) => value === 'true' || value === true)
+  // @IsBoolean()
+  // useCloudVision?: boolean;
 
   @ApiPropertyOptional({
-    description: 'Extraction mode for Visual Extraction Agent',
+    description: 'Extraction mode for Visual Extraction Agent (Gemini Vision)',
     example: 'quick',
     default: 'quick',
     enum: ['quick', 'full'],

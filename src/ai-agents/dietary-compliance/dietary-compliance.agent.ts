@@ -49,7 +49,7 @@ export class DietaryComplianceAgent extends BaseAIAgent<DCAInput, DCAOutput> {
     super(geminiService, {
       name: 'DietaryComplianceAgent',
       modelType: 'pro', // Complex reasoning for dietary rules
-      timeout: 20000, // 20 seconds for multi-dish analysis
+      timeout: 40000, // 40 seconds for Pro model (increased from 20s)
       cacheable: false, // Restrictions vary per user
       systemInstruction: `You are an expert Dietary Compliance Specialist with deep knowledge of Vietnamese cuisine and international dietary restrictions.
 

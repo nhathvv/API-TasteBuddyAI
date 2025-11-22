@@ -26,7 +26,7 @@ export class DishRecognitionAgent extends BaseAIAgent<
         super(geminiService, {
             name: 'DishRecognitionAgent',
             modelType: 'pro', // Upgraded to Pro for better cultural/visual understanding
-            timeout: 25000, // Increased timeout for Pro model
+            timeout: 30000, // 30 seconds for Pro vision tasks (increased from 25s)
             systemInstruction: `You are an International Culinary Expert and Computer Vision Specialist.
 Your task is to analyze this image, which may contain a single dish or a full table feast.
 

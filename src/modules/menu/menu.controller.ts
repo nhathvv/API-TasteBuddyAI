@@ -456,7 +456,8 @@ export class MenuController {
           type: 'string',
           default: 'quick',
           enum: ['quick', 'full'],
-          description: 'Extraction mode',
+          description: 'Extraction mode: "quick" (fast, basic info) or "full" (detailed analysis with ingredients, nutrition, allergens)',
+          example: 'full',
         },
       },
       required: ['image'],
@@ -578,10 +579,10 @@ export class MenuController {
    * Upload Image for Full Menu Scan (Professional Upload Endpoint)
    *
    * This endpoint provides a comprehensive menu analysis pipeline with:
-   * - Cloud Vision OCR (optional, faster) or Visual Extraction (Gemini-based)
-   * - Dish Understanding (ingredient analysis)
-   * - Allergen Safety Check (if allergens provided)
-   * - Dietary Compliance Check (if restrictions provided)
+   * - Visual Extraction (Gemini Flash - fast OCR & menu extraction)
+   * - Dish Understanding (Gemini Pro - ingredient analysis)
+   * - Allergen Safety Check (Gemini Pro - if allergens provided)
+   * - Dietary Compliance Check (Gemini Pro - if restrictions provided)
    *
    * Supports user profile for personalized nutrition recommendations.
    *
@@ -616,23 +617,24 @@ export class MenuController {
     description: `Upload menu/food image and run comprehensive analysis pipeline.
 
 **Features:**
-- 🔍 Cloud Vision OCR (fast, accurate) or Gemini Visual Extraction
-- 🍲 Dish Understanding (ingredients, cooking methods, allergens)
-- ⚠️ Allergen Safety Check (personalized)
-- 🥗 Dietary Compliance (vegan, halal, keto, etc.)
+- 🔍 Gemini Flash Visual Extraction (fast, accurate OCR & menu extraction)
+- 🍲 Dish Understanding (Gemini Pro - ingredients, cooking methods, allergens)
+- ⚠️ Allergen Safety Check (Gemini Pro - personalized)
+- 🥗 Dietary Compliance (Gemini Pro - vegan, halal, keto, etc.)
 - 📊 Nutrition Analysis (optional, with user profile)
 
 **Workflow:**
-1. Image Validation (food/menu photo check)
-2. Text Extraction (OCR via Cloud Vision or Gemini)
-3. Dish Understanding (AI-powered ingredient analysis)
-4. Safety Checks (allergen + dietary restrictions)
+1. Image Validation (Gemini Flash - food/menu photo check)
+2. Text Extraction (Gemini Flash - OCR & visual extraction)
+3. Dish Understanding (Gemini Pro - AI-powered ingredient analysis)
+4. Safety Checks (Gemini Pro - allergen + dietary restrictions)
 
 **Pro Tips:**
-- Use \`useCloudVision: true\` for faster OCR (requires API key)
 - Provide \`allergens\` array for safety analysis
 - Include \`nutritionGoals\` for personalized recommendations
-- Set \`language: "en"\` for English output`,
+- Set \`language: "en"\` for English output
+
+**All powered by Gemini API** - Flash for speed, Pro for reasoning`,
   })
   @ApiBody({ type: UploadScanDto })
   @ApiResponse({
@@ -643,7 +645,7 @@ export class MenuController {
         extraction: {
           menuSections: [
             {
-              sectionName: 'Cloud Vision Extracted Items',
+              sectionName: 'Gemini Flash Extracted Items',
               items: [
                 { name: 'Phở Bò', category: 'Menu Items' },
                 { name: 'Bún Chả', category: 'Menu Items' },
@@ -652,7 +654,7 @@ export class MenuController {
           ],
           metadata: {
             totalItems: 2,
-            extractionMethod: 'cloud-vision',
+            extractionMethod: 'gemini-flash',
             confidenceScore: 0.94,
             processingTime: 850,
           },
@@ -729,7 +731,6 @@ export class MenuController {
       mimeType: file.mimetype,
       language: dto.language ?? 'vi',
       extractionMode: dto.extractionMode ?? 'quick',
-      useCloudVision: dto.useCloudVision ?? false,
       context: dto.context,
       strictAllergenMode: dto.strictAllergenMode ?? true,
       outputLanguage: dto.language ?? 'en',
@@ -746,7 +747,7 @@ export class MenuController {
       - File: ${file.originalname} (${(file.size / 1024).toFixed(2)}KB)
       - Mime: ${file.mimetype}
       - Language: ${dto.language ?? 'vi'}
-      - Cloud Vision: ${dto.useCloudVision ? 'enabled' : 'disabled'}
+      - Extraction: Gemini Vision (Visual Extraction Agent)
       - Allergens: ${dto.allergens?.length ?? 0} items
       - Dietary: ${dto.dietaryPreferences?.length ?? 0} restrictions
       - Nutrition Profile: ${dto.nutritionGoals ? 'provided' : 'not provided'}
@@ -757,12 +758,12 @@ export class MenuController {
       return await this.menuService.scanMenu(scanDto);
     } catch (error) {
       // Enhanced error handling
-      if (error.message?.includes('CLOUD_VISION')) {
+      if (error.message?.includes('GEMINI') || error.message?.includes('EXTRACTION')) {
         throw new BadRequestException({
-          code: 'ERR_CLOUD_VISION_FAILED',
-          message: 'Cloud Vision API failed',
+          code: 'ERR_EXTRACTION_FAILED',
+          message: 'Image extraction failed',
           details: error.message,
-          hint: 'Try setting useCloudVision: false to use Gemini instead',
+          hint: 'Please try with a clearer image',
         });
       }
 
@@ -776,191 +777,6 @@ export class MenuController {
 
       // Re-throw original error
       throw error;
-    }
-  }
-
-  @Post('upload/vision-test')
-  @UseInterceptors(FileInterceptor('image'))
-  @ApiConsumes('multipart/form-data')
-  @ApiOperation({
-    summary: 'Test Cloud Vision Analysis with Multi-Agent Pipeline',
-    description:
-      'Upload image and analyze using Google Cloud Vision API with optional multi-agent pipeline (Cloud Vision → Dish Understanding → Nutrition Coach).',
-  })
-  @ApiBody({
-    schema: {
-      type: 'object',
-      properties: {
-        image: {
-          type: 'string',
-          format: 'binary',
-          description: 'Image file to analyze',
-        },
-        features: {
-          type: 'string',
-          description: 'Comma-separated features to detect (e.g., "TEXT_DETECTION,LABEL_DETECTION")',
-          example: 'TEXT_DETECTION,LABEL_DETECTION',
-          default: 'TEXT_DETECTION,LABEL_DETECTION',
-        },
-        maxResults: {
-          type: 'number',
-          description: 'Maximum results per feature',
-          default: 10,
-        },
-        languageHints: {
-          type: 'string',
-          description: 'Comma-separated language hints (e.g., "vi,en")',
-          example: 'vi,en',
-        },
-        enablePipeline: {
-          type: 'boolean',
-          description: 'Enable multi-agent pipeline (Cloud Vision → Dish Understanding → Nutrition Coach)',
-          default: false,
-        },
-      },
-      required: ['image'],
-    },
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'FR-06 & FR-07: Dish analysis with safety check completed successfully',
-    schema: {
-      example: {
-        success: true,
-        message: 'Dish analysis completed successfully',
-        data: {
-          dishes: [
-            {
-              dishId: 'dish_001',
-              dishName: 'Bánh Mì Thịt Heo Xíu',
-              dishNameEnglish: 'Vietnamese Pork Sandwich',
-              imageAnalysis: {
-                confidence: 0.94,
-                detectedLabels: ['Food', 'Sandwich', 'Vietnamese Cuisine'],
-              },
-              ingredients: [
-                {
-                  name: 'Bánh mì',
-                  nameEnglish: 'Vietnamese Baguette',
-                  isPrimary: true,
-                  allergenTags: ['gluten', 'wheat'],
-                },
-                {
-                  name: 'Thịt heo xíu',
-                  nameEnglish: 'Char Siu Pork',
-                  isPrimary: true,
-                  allergenTags: ['soy'],
-                },
-              ],
-              nutrition: {
-                calories: 450,
-                protein: 28,
-                carbs: 51,
-                fat: 15,
-                fiber: 3,
-                sodium: 900,
-                sugar: 4,
-                servingSize: '1 serving (~200g)',
-              },
-              safetyCheck: {
-                status: 'warning',
-                overallRisk: 'medium',
-                detectedAllergens: [
-                  {
-                    allergen: 'gluten',
-                    source: 'Vietnamese Baguette',
-                    likelihood: 'definite',
-                  },
-                ],
-                healthConditionWarnings: [],
-                warnings: [
-                  '⚠️ Contains gluten from Vietnamese Baguette',
-                ],
-                safeTags: [
-                  '✅ Egg-free',
-                  '✅ Peanut-free',
-                  '✅ Shellfish-free',
-                ],
-                recommendation: 'Consider gluten-free bread alternative',
-              },
-            },
-          ],
-          summary: {
-            totalDishes: 3,
-            safeCount: 1,
-            warningCount: 1,
-            dangerCount: 1,
-            totalCalories: 1350,
-            averageProtein: 24,
-            processingTime: 65000,
-          },
-          userProfile: {
-            allergens: [
-              { name: 'egg', severity: 'severe' },
-              { name: 'gluten', severity: 'moderate' },
-            ],
-            healthConditions: ['hypertension', 'diabetes'],
-            dietaryGoal: 'weight-loss',
-            dailyCalorieTarget: 2106,
-          },
-        },
-      },
-    },
-  })
-  @ApiResponse({
-    status: 400,
-    description: 'No file uploaded or invalid file type',
-  })
-  async uploadCloudVisionTest(
-    @UploadedFile() file: Express.Multer.File,
-    @Body('features') featuresStr?: string,
-    @Body('maxResults') maxResultsStr?: string,
-    @Body('languageHints') languageHintsStr?: string,
-    @Body('enablePipeline') enablePipelineStr?: string,
-  ) {
-    if (!file) {
-      throw new BadRequestException('No image file uploaded');
-    }
-    // Convert buffer to base64
-    const base64Image = file.buffer.toString('base64');
-
-    // Parse features (comma-separated)
-    let features: string[] | undefined;
-    if (featuresStr) {
-      features = featuresStr.split(',').map((f) => f.trim());
-    }
-
-    // Parse max results
-    const maxResults = maxResultsStr ? parseInt(maxResultsStr, 10) : undefined;
-
-    // Parse language hints (comma-separated)
-    let languageHints: string[] | undefined;
-    if (languageHintsStr) {
-      languageHints = languageHintsStr.split(',').map((l) => l.trim());
-    }
-
-    // Check if pipeline mode is enabled
-    const enablePipeline = enablePipelineStr === 'true';
-
-    if (enablePipeline) {
-      // Call multi-agent pipeline (will use MOCK user data)
-      return this.menuService.testCloudVisionPipeline({
-        imageData: base64Image,
-        mimeType: file.mimetype,
-        features,
-        maxResults,
-        languageHints,
-        // No user profile params - service will use MOCK_USER_DATA
-      });
-    } else {
-      // Call simple Cloud Vision Agent (backward compatible)
-      return this.menuService.testCloudVision({
-        imageData: base64Image,
-        mimeType: file.mimetype,
-        features,
-        maxResults,
-        languageHints,
-      });
     }
   }
 
@@ -1041,7 +857,6 @@ export class MenuController {
       mimeType: file.mimetype,
       language: dto.language ?? 'vi',
       extractionMode: dto.extractionMode ?? 'quick',
-      useCloudVision: dto.useCloudVision ?? false,
       context: dto.context,
       strictAllergenMode: dto.strictAllergenMode ?? true,
       outputLanguage: dto.language ?? 'en',
@@ -1193,7 +1008,6 @@ Poll this endpoint every 2-3 seconds until status is 'completed' or 'failed'.`,
   async extractMenuOnly(
     @UploadedFile() file: Express.Multer.File,
     @Body('language') language?: string,
-    @Body('useCloudVision') useCloudVision?: boolean,
   ) {
     if (!file) {
       throw new BadRequestException('No image file uploaded');
@@ -1205,7 +1019,6 @@ Poll this endpoint every 2-3 seconds until status is 'completed' or 'failed'.`,
       imageData: base64Image,
       mimeType: file.mimetype,
       language: language || 'vi',
-      useCloudVision: useCloudVision === true,
     });
   }
 

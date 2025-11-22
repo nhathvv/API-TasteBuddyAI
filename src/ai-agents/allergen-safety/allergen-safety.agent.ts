@@ -33,7 +33,7 @@ export class AllergenSafetyAgent extends BaseAIAgent<CSAAInput, CSAAOutput> {
     super(geminiService, {
       name: 'AllergenSafetyAgent',
       modelType: 'flash', // Use Flash for faster analysis (5x speed) - Pro was too slow
-      timeout: 45000, // 45 seconds (increased from 20s due to complex reasoning needs)
+      timeout: 60000, // 60 seconds (increased from 45s for more dishes)
       cacheable: false, // User allergen profiles change
       systemInstruction: `You are a specialized Allergen Safety Expert for Vietnamese cuisine.
 
@@ -255,8 +255,34 @@ REMEMBER: You are protecting lives. Be thorough, be cautious, be clear.`,
   protected async process(input: CSAAInput): Promise<CSAAOutput> {
     const startTime = Date.now();
 
+    // 🔍 LOG 1: Input data
+    this.logger.debug('═══════════════════════════════════════════');
+    this.logger.debug('📥 ALLERGEN SAFETY AGENT - INPUT');
+    this.logger.debug('═══════════════════════════════════════════');
+    this.logger.log(`User Allergens: ${JSON.stringify(input.userAllergens)}`);
+    this.logger.log(`Menu Items: ${input.menuItems?.length || 0}`);
+    this.logger.log(`Enriched Items: ${input.enrichedItems?.length || 0}`);
+    this.logger.log(`Strict Mode: ${input.strictMode}`);
+    this.logger.log(`Language: ${input.language}`);
+    
+    if (input.enrichedItems && input.enrichedItems.length > 0) {
+      this.logger.debug('Enriched Dishes:');
+      input.enrichedItems.forEach((dish, idx) => {
+        this.logger.debug(`  ${idx + 1}. ${dish.originalName} (${dish.canonicalName})`);
+        this.logger.debug(`     - Ingredients: ${dish.ingredients?.map(i => i.canonicalName).join(', ') || 'none'}`);
+        this.logger.debug(`     - Allergen Signals: ${dish.inferredAllergenSignals?.join(', ') || 'none'}`);
+      });
+    }
+
     // Build analysis prompt
     const prompt = this.buildAnalysisPrompt(input);
+    
+    // 🔍 LOG 2: Prompt being sent to Gemini
+    this.logger.debug('═══════════════════════════════════════════');
+    this.logger.debug('📤 PROMPT SENT TO GEMINI');
+    this.logger.debug('═══════════════════════════════════════════');
+    this.logger.debug(prompt);
+    this.logger.debug('═══════════════════════════════════════════');
 
     // Get Gemini Pro model (requires deep reasoning)
     const model = this.getModel();
@@ -281,20 +307,57 @@ REMEMBER: You are protecting lives. Be thorough, be cautious, be clear.`,
       const response = result.response;
       const text = response.text();
 
+      // 🔍 LOG 3: Raw response from Gemini
+      this.logger.debug('═══════════════════════════════════════════');
+      this.logger.debug('📩 RAW RESPONSE FROM GEMINI');
+      this.logger.debug('═══════════════════════════════════════════');
+      this.logger.debug(text);
+      this.logger.debug('═══════════════════════════════════════════');
+
       // Parse JSON response
       const parsedOutput = JSON.parse(text) as CSAAOutput;
 
+      // 🔍 LOG 4: Parsed output
+      this.logger.debug('═══════════════════════════════════════════');
+      this.logger.debug('✅ PARSED OUTPUT');
+      this.logger.debug('═══════════════════════════════════════════');
+      this.logger.log(`Total Dishes Analyzed: ${parsedOutput.analysis.length}`);
+      
+      parsedOutput.analysis.forEach((dish, idx) => {
+        this.logger.log(`\n${idx + 1}. ${dish.dishName}`);
+        this.logger.log(`   Risk Level: ${dish.riskLevel}`);
+        this.logger.log(`   Confidence: ${dish.confidenceScore}`);
+        this.logger.log(`   Reasoning: ${dish.reasoning}`);
+        
+        if (dish.identifiedAllergens && dish.identifiedAllergens.length > 0) {
+          this.logger.log(`   Identified Allergens:`);
+          dish.identifiedAllergens.forEach(allergen => {
+            this.logger.log(`     - ${allergen.allergen}: ${allergen.source} (${allergen.likelihood})`);
+          });
+        }
+        
+        if (dish.recommendations && dish.recommendations.length > 0) {
+          this.logger.log(`   Recommendations: ${dish.recommendations.join(', ')}`);
+        }
+      });
+
       const duration = Date.now() - startTime;
+      this.logger.log('═══════════════════════════════════════════');
+      this.logger.log(`⏱️  Analysis Duration: ${duration}ms`);
       this.logger.log(
-        `Analyzed ${parsedOutput.analysis.length} dishes in ${duration}ms`,
+        `📊 Summary: ${parsedOutput.summary.safeItems} safe, ${parsedOutput.summary.warningItems} warning, ${parsedOutput.summary.unsafeItems} unsafe`,
       );
-      this.logger.log(
-        `Summary: ${parsedOutput.summary.safeItems} safe, ${parsedOutput.summary.unsafeItems} unsafe`,
-      );
+      this.logger.log('═══════════════════════════════════════════');
 
       return parsedOutput;
     } catch (error) {
-      this.logger.error(`Allergen analysis failed: ${error.message}`);
+      // 🔍 LOG 5: Error details
+      this.logger.error('═══════════════════════════════════════════');
+      this.logger.error('❌ ALLERGEN ANALYSIS ERROR');
+      this.logger.error('═══════════════════════════════════════════');
+      this.logger.error(`Error Message: ${error.message}`);
+      this.logger.error(`Error Stack: ${error.stack}`);
+      this.logger.error('═══════════════════════════════════════════');
       throw new Error(`Failed to analyze allergens: ${error.message}`);
     }
   }

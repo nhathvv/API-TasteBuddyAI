@@ -85,9 +85,10 @@ export class ScanMenuDto {
   @IsString()
   extractionMode?: 'quick' | 'full';
 
-  @IsOptional()
-  @IsBoolean()
-  useCloudVision?: boolean = false;
+  // DEPRECATED: useCloudVision removed - now always uses Gemini Vision
+  // @IsOptional()
+  // @IsBoolean()
+  // useCloudVision?: boolean = false;
 
   @IsOptional()
   @IsArray()
@@ -100,4 +101,14 @@ export class ScanMenuDto {
   @Type(() => UserAllergenDto)
   @ArrayMinSize(0)
   userAllergens?: UserAllergenDto[] = [];
+
+  @IsOptional()
+  @IsString()
+  @IsIn(['danang', 'da-nang', 'hanoi', 'saigon', 'ho-chi-minh', 'hue', 'hoi-an', 'quy-nhon', 'hai-phong', 'can-tho', 'vung-tau', 'central_vietnam', 'north_vietnam', 'south_vietnam'])
+  userLocation?: string = 'danang'; // Default: Đà Nẵng
+
+  @IsOptional()
+  @IsString()
+  @IsIn(['VND', 'USD', 'EUR', 'KRW', 'JPY'])
+  currency?: string; // Optional currency override
 }

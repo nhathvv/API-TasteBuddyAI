@@ -1,5 +1,17 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { EventEmitter } from 'events';
+import {
+  JobMetadata,
+  JobErrorType,
+  JobError,
+  StageConfig,
+  JobConfig,
+} from './job-queue.types';
+import {
+  validateJobMetadata,
+  shouldRetryBasedOnValidation,
+  formatValidationResult,
+} from './job-queue.validators';
 
 /**
  * Job status enum
@@ -40,10 +52,12 @@ export interface Job {
       duration?: number;
       data?: any;
       error?: string;
+      retryCount?: number;
     };
   };
   result: any;
-  error?: string;
+  error?: JobError | string;
+  config?: JobConfig;
   createdAt: number;
   updatedAt: number;
 }
@@ -65,9 +79,14 @@ export class JobQueueService {
   private readonly logger = new Logger(JobQueueService.name);
   private jobs: Map<string, Job> = new Map();
   private eventEmitters: Map<string, EventEmitter> = new Map();
+  private stageConfigs: Map<string, StageConfig> = new Map();
 
   // Auto-cleanup jobs after 1 hour
   private readonly JOB_TTL = 60 * 60 * 1000; // 1 hour
+  
+  // Default retry configuration
+  private readonly DEFAULT_MAX_RETRIES = 3;
+  private readonly DEFAULT_RETRY_DELAY = 1000; // 1 second
 
   constructor() {
     // Cleanup old jobs every 10 minutes
@@ -77,9 +96,10 @@ export class JobQueueService {
   /**
    * Create a new job
    *
+   * @param config - Optional job configuration
    * @returns Job ID
    */
-  createJob(): string {
+  createJob(config?: JobConfig): string {
     const jobId = this.generateJobId();
     const now = Date.now();
 
@@ -89,6 +109,7 @@ export class JobQueueService {
       currentStage: null,
       stages: {},
       result: null,
+      config,
       createdAt: now,
       updatedAt: now,
     };
@@ -210,8 +231,9 @@ export class JobQueueService {
    *
    * @param jobId - Job ID
    * @param result - Final result
+   * @param metadata - Optional enriched metadata for detailed logging
    */
-  completeJob(jobId: string, result: any): void {
+  completeJob(jobId: string, result: any, metadata?: JobMetadata): void {
     const job = this.jobs.get(jobId);
     if (!job) {
       this.logger.warn(`Job not found: ${jobId}`);
@@ -224,14 +246,153 @@ export class JobQueueService {
 
     this.jobs.set(jobId, job);
 
+    // Get job summary for logging
+    const summary = this.getJobSummary(jobId);
+    
+    // 🔍 LOG: Job completion summary
+    this.logger.log('═══════════════════════════════════════════');
+    this.logger.log(`✅ JOB COMPLETED: ${jobId}`);
+    this.logger.log('═══════════════════════════════════════════');
+    if (summary) {
+      this.logger.log(`⏱️  Total Duration: ${summary.totalDuration}ms`);
+      this.logger.log(`📊 Stages: ${summary.completedStages}/${summary.totalStages} completed`);
+      
+      this.logger.log('\nStage Breakdown:');
+      summary.stageDetails.forEach(stage => {
+        const icon = stage.status === 'completed' ? '✅' : stage.status === 'failed' ? '❌' : '⏳';
+        this.logger.log(`  ${icon} ${stage.name}: ${stage.status} (${stage.duration || 0}ms)`);
+      });
+      
+      if (summary.failedStages > 0) {
+        this.logger.warn(`⚠️  ${summary.failedStages} stage(s) failed`);
+      }
+    }
+
+    // 🔍 LOG: Enriched metadata (dishes, allergens, prices)
+    if (metadata) {
+      this.logger.log('═══════════════════════════════════════════');
+      this.logger.log('📋 DETAILED ANALYSIS RESULTS');
+      this.logger.log('═══════════════════════════════════════════');
+      
+      // Dishes & Ingredients
+      if (metadata.dishes && metadata.dishes.length > 0) {
+        this.logger.log(`\n🍽️  Món ăn (${metadata.dishes.length} món):`);
+        metadata.dishes.forEach((dish: any, idx: number) => {
+          this.logger.log(`\n${idx + 1}. ${dish.name} ${dish.canonicalName !== dish.name ? `(${dish.canonicalName})` : ''}`);
+          this.logger.log(`   📝 Thành phần: ${dish.ingredients}`);
+          if (dish.price > 0) {
+            this.logger.log(`   💰 Giá: ${dish.price.toLocaleString('vi-VN')}₫`);
+          }
+        });
+      }
+
+      // Allergen Summary
+      if (metadata.allergenSummary) {
+        this.logger.log(`\n🚨 Phân tích dị ứng:`);
+        this.logger.log(`   ✅ An toàn: ${metadata.allergenSummary.safeItems} món`);
+        this.logger.log(`   ⚠️  Không an toàn: ${metadata.allergenSummary.unsafeItems} món`);
+        this.logger.log(`   📊 Mức độ rủi ro tổng thể: ${metadata.allergenSummary.overallRisk.toUpperCase()}`);
+        
+        // Details per dish
+        if (metadata.allergenSummary.details && metadata.allergenSummary.details.length > 0) {
+          this.logger.log(`\n   Chi tiết từng món:`);
+          metadata.allergenSummary.details.forEach((detail: any) => {
+            const riskIcon = detail.riskLevel === 'SAFE' ? '✅' : 
+                           detail.riskLevel === 'HIGH_RISK' || detail.riskLevel === 'SEVERE_RISK' ? '🔴' : '🟡';
+            this.logger.log(`   ${riskIcon} ${detail.dishName}: ${detail.riskLevel}`);
+            
+            if (detail.allergens && detail.allergens.length > 0) {
+              detail.allergens.forEach((allergen: any) => {
+                this.logger.log(`      - ${allergen.type}: ${allergen.source}`);
+                this.logger.log(`        Khả năng: ${allergen.likelihood}, Mức độ: ${allergen.severity}`);
+              });
+            }
+          });
+        }
+      }
+
+      // Price Analysis
+      if (metadata.priceAnalysis) {
+        this.logger.log(`\n💰 Phân tích giá:`);
+        this.logger.log(`   📊 Giá trung bình: ${metadata.priceAnalysis.averagePrice.toLocaleString('vi-VN')}₫`);
+        this.logger.log(`   📉 Giá thấp nhất: ${metadata.priceAnalysis.minPrice.toLocaleString('vi-VN')}₫`);
+        this.logger.log(`   📈 Giá cao nhất: ${metadata.priceAnalysis.maxPrice.toLocaleString('vi-VN')}₫`);
+      }
+    }
+    
+    this.logger.log('═══════════════════════════════════════════');
+
     // Emit completion event
     this.emit(jobId, {
       type: 'job_completed',
       result,
+      summary,
       timestamp: Date.now(),
     });
+  }
 
-    this.logger.log(`Job completed: ${jobId}`);
+  /**
+   * Validate and complete job with metadata validation
+   *
+   * @param jobId - Job ID
+   * @param result - Final result
+   * @param metadata - Job metadata to validate
+   * @param autoRetryOnValidationError - Whether to automatically retry on validation errors
+   * @returns Validation result
+   */
+  validateAndCompleteJob(
+    jobId: string,
+    result: any,
+    metadata: JobMetadata,
+    autoRetryOnValidationError: boolean = false,
+  ): { success: boolean; validationResult?: any; error?: string } {
+    const job = this.jobs.get(jobId);
+    if (!job) {
+      this.logger.warn(`Job not found: ${jobId}`);
+      return { success: false, error: 'Job not found' };
+    }
+
+    // Validate metadata
+    const validationResult = validateJobMetadata(metadata);
+
+    // Log validation result
+    this.logger.log('═══════════════════════════════════════════');
+    this.logger.log(`🔍 VALIDATION RESULT FOR JOB: ${jobId}`);
+    this.logger.log('═══════════════════════════════════════════');
+    this.logger.log(formatValidationResult(validationResult));
+    this.logger.log('═══════════════════════════════════════════');
+
+    // Check if should retry based on validation
+    if (!validationResult.isValid && autoRetryOnValidationError) {
+      const shouldRetry = shouldRetryBasedOnValidation(validationResult);
+      
+      if (shouldRetry) {
+        this.logger.warn(
+          `Job ${jobId} has validation errors that require retry. Marking for retry...`
+        );
+        
+        // Emit validation failed event
+        this.emit(jobId, {
+          type: 'validation_failed',
+          validationResult,
+          timestamp: Date.now(),
+        });
+
+        return {
+          success: false,
+          validationResult,
+          error: 'Validation failed, retry required',
+        };
+      }
+    }
+
+    // Complete job even if there are warnings (non-critical issues)
+    this.completeJob(jobId, result, metadata);
+
+    return {
+      success: true,
+      validationResult,
+    };
   }
 
   /**
@@ -309,6 +470,161 @@ export class JobQueueService {
   }
 
   /**
+   * Retry a failed stage
+   *
+   * @param jobId - Job ID
+   * @param stage - Stage to retry
+   * @param retryFn - Function to execute for retry
+   * @returns Promise that resolves when retry succeeds or max retries reached
+   */
+  async retryStage(
+    jobId: string,
+    stage: JobStage,
+    retryFn: () => Promise<any>,
+  ): Promise<{ success: boolean; data?: any; error?: string }> {
+    const job = this.jobs.get(jobId);
+    if (!job) {
+      return {
+        success: false,
+        error: 'Job not found',
+      };
+    }
+
+    // Get retry configuration
+    const stageConfig = job.config?.stageConfigs?.[stage];
+    const maxRetries = stageConfig?.maxRetries ?? this.DEFAULT_MAX_RETRIES;
+    const retryDelay = stageConfig?.retryDelay ?? this.DEFAULT_RETRY_DELAY;
+
+    // Initialize stage if not exists
+    if (!job.stages[stage]) {
+      job.stages[stage] = { status: 'pending', retryCount: 0 };
+    }
+
+    const stageInfo = job.stages[stage]!;
+    const currentRetryCount = stageInfo.retryCount ?? 0;
+
+    if (currentRetryCount >= maxRetries) {
+      this.logger.error(
+        `Job ${jobId} - Stage ${stage}: Max retries (${maxRetries}) exceeded`,
+      );
+      return {
+        success: false,
+        error: `Max retries (${maxRetries}) exceeded`,
+      };
+    }
+
+    // Increment retry count
+    stageInfo.retryCount = currentRetryCount + 1;
+    this.logger.log(
+      `Job ${jobId} - Stage ${stage}: Retry attempt ${stageInfo.retryCount}/${maxRetries}`,
+    );
+
+    // Wait before retry
+    if (currentRetryCount > 0) {
+      await new Promise((resolve) => setTimeout(resolve, retryDelay));
+    }
+
+    try {
+      // Execute retry function
+      this.updateStage(jobId, stage, undefined, 'processing');
+      const data = await retryFn();
+      this.updateStage(jobId, stage, data, 'completed');
+
+      return { success: true, data };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `Job ${jobId} - Stage ${stage}: Retry ${stageInfo.retryCount} failed: ${errorMessage}`,
+      );
+
+      // If max retries reached, fail the stage
+      if (stageInfo.retryCount >= maxRetries) {
+        this.failStage(jobId, stage, `Failed after ${maxRetries} retries: ${errorMessage}`);
+        return { success: false, error: errorMessage };
+      }
+
+      // Otherwise, retry again
+      return this.retryStage(jobId, stage, retryFn);
+    }
+  }
+
+  /**
+   * Create a structured job error
+   *
+   * @param type - Error type
+   * @param message - Error message
+   * @param stage - Stage where error occurred
+   * @param originalError - Original error object
+   * @returns JobError object
+   */
+  createJobError(
+    type: JobErrorType,
+    message: string,
+    stage?: JobStage,
+    originalError?: Error,
+  ): JobError {
+    return {
+      type,
+      message,
+      stage,
+      originalError,
+      context: {
+        timestamp: Date.now(),
+      },
+    };
+  }
+
+  /**
+   * Validate job exists and is in valid state
+   *
+   * @param jobId - Job ID
+   * @param allowedStatuses - Allowed job statuses
+   * @returns JobError if validation fails, null otherwise
+   */
+  validateJob(
+    jobId: string,
+    allowedStatuses?: JobStatus[],
+  ): JobError | null {
+    const job = this.jobs.get(jobId);
+
+    if (!job) {
+      return this.createJobError(
+        JobErrorType.NOT_FOUND,
+        `Job ${jobId} not found`,
+      );
+    }
+
+    if (allowedStatuses && !allowedStatuses.includes(job.status)) {
+      return this.createJobError(
+        JobErrorType.INVALID_TRANSITION,
+        `Job ${jobId} is in ${job.status} state, expected one of: ${allowedStatuses.join(', ')}`,
+      );
+    }
+
+    return null;
+  }
+
+  /**
+   * Set stage configuration
+   *
+   * @param stage - Stage name
+   * @param config - Stage configuration
+   */
+  setStageConfig(stage: JobStage, config: StageConfig): void {
+    this.stageConfigs.set(stage, config);
+  }
+
+  /**
+   * Get stage configuration
+   *
+   * @param stage - Stage name
+   * @returns Stage configuration or undefined
+   */
+  getStageConfig(stage: JobStage): StageConfig | undefined {
+    return this.stageConfigs.get(stage);
+  }
+
+  /**
    * Cleanup old jobs
    */
   private cleanupOldJobs(): void {
@@ -326,6 +642,70 @@ export class JobQueueService {
     if (cleaned > 0) {
       this.logger.log(`Cleaned up ${cleaned} old jobs`);
     }
+  }
+
+  /**
+   * Get job summary with stage details
+   *
+   * @param jobId - Job ID
+   * @returns Job summary or null
+   */
+  getJobSummary(jobId: string): {
+    jobId: string;
+    status: JobStatus;
+    totalDuration: number;
+    totalStages: number;
+    completedStages: number;
+    failedStages: number;
+    pendingStages: number;
+    stageDetails: Array<{
+      name: string;
+      status: string;
+      duration: number | null;
+      error?: string;
+    }>;
+  } | null {
+    const job = this.jobs.get(jobId);
+    if (!job) return null;
+
+    const totalDuration = job.updatedAt - job.createdAt;
+    let completedStages = 0;
+    let failedStages = 0;
+    let pendingStages = 0;
+
+    const stageDetails = Object.values(JobStage).map(stageName => {
+      const stage = job.stages[stageName];
+      if (!stage) {
+        pendingStages++;
+        return {
+          name: stageName,
+          status: 'pending',
+          duration: null,
+        };
+      }
+
+      if (stage.status === 'completed') completedStages++;
+      if (stage.status === 'failed') failedStages++;
+      if (stage.status === 'pending') pendingStages++;
+
+      return {
+        name: stageName,
+        status: stage.status,
+        duration: stage.duration || null,
+        error: stage.error,
+      };
+    });
+
+    return {
+      jobId: job.id,
+      status: job.status,
+      totalDuration,
+      totalStages: Object.values(JobStage).length,
+      completedStages,
+      failedStages,
+      pendingStages,
+      stageDetails,
+    };
   }
 
   /**

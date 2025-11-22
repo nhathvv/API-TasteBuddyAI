@@ -12,22 +12,21 @@ import { DishUnderstandingAgent } from './dish-understanding/dish-understanding.
 import { DishRecognitionAgent } from './dish-recognition/dish-recognition.agent';
 import { AgentOrchestratorService } from './orchestrator/agent-orchestrator.service';
 import { FoodImageValidationModule } from './food-image-validation/food-image-validation.module';
-import { CloudVisionAgent } from './cloud-vision/cloud-vision.agent';
 
 /**
  * AI Agents Module
  *
  * Central module for all AI agents in the TasteBuddyAI system.
  * Provides:
- * - Visual Extraction Agent (VEA) ✅
- * - Dish Understanding Agent (DUIA) ✅
- * - Dish Recognition Agent (DRA) ✅
- * - Allergen Safety Agent (CSAA) ✅
- * - Nutrition Coach Agent (NCA) ✅
- * - Dietary Compliance Agent (DCA) ✅
- * - Food Image Validation (Gatekeeper) ✅
- * - Cloud Vision Agent (CVA) ✅ NEW
+ * - Visual Extraction Agent (VEA) ✅ - Gemini Flash for OCR & menu extraction
+ * - Dish Understanding Agent (DUIA) ✅ - Gemini Pro for ingredient analysis
+ * - Dish Recognition Agent (DRA) ✅ - Gemini Pro for dish identification
+ * - Allergen Safety Agent (CSAA) ✅ - Gemini Pro for allergen detection
+ * - Nutrition Coach Agent (NCA) ✅ - Gemini Pro for nutrition recommendations
+ * - Dietary Compliance Agent (DCA) ✅ - Gemini Pro for dietary checks
+ * - Food Image Validation (Gatekeeper) ✅ - Gemini Flash for image validation
  *
+ * All agents use Gemini API (Flash for speed, Pro for reasoning).
  * All agents are exported for use in feature modules.
  */
 @Module({
@@ -44,7 +43,6 @@ import { CloudVisionAgent } from './cloud-vision/cloud-vision.agent';
     NutritionCoachAgent,
     DietaryComplianceAgent,
     AgentOrchestratorService,
-    CloudVisionAgent,
   ],
   exports: [
     GeminiCoreService,
@@ -59,7 +57,6 @@ import { CloudVisionAgent } from './cloud-vision/cloud-vision.agent';
     DietaryComplianceAgent,
     AgentOrchestratorService,
     FoodImageValidationModule,
-    CloudVisionAgent,
   ],
 })
 export class AIAgentsModule { }

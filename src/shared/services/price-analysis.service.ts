@@ -135,9 +135,10 @@ export class PriceAnalysisService {
       baseDishType?: string;
     },
     language: string = 'vi',
+    userLocation?: string, // User's location from FE
   ): PriceAnalysis {
-    // 1. Determine region
-    const region = this.determineRegion(dish.cuisineRegion);
+    // 1. Determine region (prioritize user location)
+    const region = this.determineRegion(dish.cuisineRegion, userLocation);
 
     // 2. Categorize price
     const priceCategory = this.categorizePriceInRegion(price, region);
@@ -193,26 +194,62 @@ export class PriceAnalysisService {
   }
 
   /**
-   * Determine region from cuisine region
+   * Determine region from cuisine region or user location
    */
-  private determineRegion(cuisineRegion?: string): string {
-    if (!cuisineRegion) return 'south_vietnam'; // Default
+  private determineRegion(cuisineRegion?: string, userLocation?: string): string {
+    // 1. Prioritize user location if provided
+    if (userLocation) {
+      return this.mapLocationToRegion(userLocation);
+    }
 
+    // 2. Use cuisine region if available
+    if (cuisineRegion) {
+      return this.mapLocationToRegion(cuisineRegion);
+    }
+
+    // 3. Default: Đà Nẵng (Central Vietnam)
+    return 'central_vietnam';
+  }
+
+  /**
+   * Map location string to region
+   */
+  private mapLocationToRegion(location: string): string {
     const regionMap: Record<string, string> = {
-      north_vietnam: 'north_vietnam',
-      hanoi: 'north_vietnam',
-      central_vietnam: 'central_vietnam',
-      hue: 'central_vietnam',
-      danang: 'central_vietnam',
-      south_vietnam: 'south_vietnam',
-      saigon: 'south_vietnam',
+      // Miền Bắc
+      'north_vietnam': 'north_vietnam',
+      'hanoi': 'north_vietnam',
+      'hai-phong': 'north_vietnam',
+      'haiphong': 'north_vietnam',
+      
+      // Miền Trung (Default)
+      'central_vietnam': 'central_vietnam',
+      'danang': 'central_vietnam',
+      'da-nang': 'central_vietnam',
+      'hue': 'central_vietnam',
+      'hoi-an': 'central_vietnam',
+      'hoian': 'central_vietnam',
+      'quy-nhon': 'central_vietnam',
+      'quynhon': 'central_vietnam',
+      
+      // Miền Nam
+      'south_vietnam': 'south_vietnam',
+      'saigon': 'south_vietnam',
       'ho-chi-minh': 'south_vietnam',
-      international: 'international',
-      western: 'international',
-      asian: 'international',
+      'hochiminh': 'south_vietnam',
+      'hcm': 'south_vietnam',
+      'can-tho': 'south_vietnam',
+      'cantho': 'south_vietnam',
+      'vung-tau': 'south_vietnam',
+      'vungtau': 'south_vietnam',
+      
+      // Quốc tế
+      'international': 'international',
+      'western': 'international',
+      'asian': 'international',
     };
 
-    return regionMap[cuisineRegion.toLowerCase()] || 'south_vietnam';
+    return regionMap[location.toLowerCase()] || 'central_vietnam'; // Default: Đà Nẵng
   }
 
   /**

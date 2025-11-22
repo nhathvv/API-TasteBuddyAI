@@ -32,7 +32,7 @@ export class VisualExtractionAgent extends BaseAIAgent<VEAInput, VEAOutput> {
     super(geminiService, {
       name: 'VisualExtractionAgent',
       modelType: 'flash', // Use Flash for fast OCR
-      timeout: 15000, // 15 seconds for image processing
+      timeout: 30000, // 30 seconds for image processing (increased from 15s)
       cacheable: false, // Images change, don't cache
       systemInstruction: `You are a specialized Visual Extraction Agent for Vietnamese restaurant menus.
 
@@ -74,10 +74,17 @@ CRITICAL REQUIREMENTS:
    - Low: Very blurry, poor quality, partial visibility
    - Set confidenceScore accordingly (0.0 - 1.0)
 
+7. IMPORTANT - ALWAYS EXTRACT:
+   - Even if image quality is poor, EXTRACT what you can see
+   - Even partial/unclear text should be included with lower confidence
+   - NEVER return empty results unless image is completely unreadable
+   - If you see ANY text that looks like a dish name, include it
+
 OUTPUT FORMAT:
 - Strictly follow the JSON schema provided
-- Never invent data - if unclear, mark as low confidence
-- Preserve original Vietnamese text exactly as written`,
+- If unclear, mark as low confidence but STILL include the item
+- Preserve original Vietnamese text exactly as written
+- Better to extract with uncertainty than to return nothing`,
     });
   }
 
@@ -106,8 +113,18 @@ OUTPUT FORMAT:
   protected async process(input: VEAInput): Promise<VEAOutput> {
     const startTime = Date.now();
 
+    // 🔍 LOG 1: Input data
+    this.logger.debug('═══════════════════════════════════════════');
+    this.logger.debug('📥 VISUAL EXTRACTION AGENT - INPUT');
+    this.logger.debug('═══════════════════════════════════════════');
+    this.logger.log(`Language: ${input.language || 'vi'}`);
+    this.logger.log(`Extraction Mode: ${input.extractionMode || 'quick'}`);
+    this.logger.log(`MIME Type: ${input.mimeType}`);
+    this.logger.log(`Image Data Length: ${input.imageData.length} chars`);
+
     // Sanitize Base64 (remove data URI prefix if present)
     const cleanBase64 = this.geminiService.sanitizeBase64(input.imageData);
+    this.logger.debug(`Clean Base64 Length: ${cleanBase64.length} chars`);
 
     // Validate MIME type
     if (!this.geminiService.isValidImageMimeType(input.mimeType)) {
@@ -116,7 +133,13 @@ OUTPUT FORMAT:
 
     // Create prompt for menu extraction
     const prompt = this.buildExtractionPrompt(input);
-    console.log('Prompt:', prompt);
+    
+    // 🔍 LOG 2: Prompt being sent
+    this.logger.debug('═══════════════════════════════════════════');
+    this.logger.debug('📤 PROMPT SENT TO GEMINI');
+    this.logger.debug('═══════════════════════════════════════════');
+    this.logger.debug(prompt);
+    this.logger.debug('═══════════════════════════════════════════');
 
     // Get Gemini Flash model (optimized for vision tasks)
     const model = this.getModel();
@@ -148,19 +171,53 @@ OUTPUT FORMAT:
       const response = result.response;
       const text = response.text();
 
+      // 🔍 LOG 3: Raw response from Gemini
+      this.logger.debug('═══════════════════════════════════════════');
+      this.logger.debug('📩 RAW RESPONSE FROM GEMINI');
+      this.logger.debug('═══════════════════════════════════════════');
+      this.logger.debug(text);
+      this.logger.debug('═══════════════════════════════════════════');
+
       // Parse JSON response
       const parsedOutput = JSON.parse(text) as VEAOutput;
 
       // Add processing time to metadata
       parsedOutput.metadata.processingTime = Date.now() - startTime;
 
+      // 🔍 LOG 4: Parsed output
+      this.logger.debug('═══════════════════════════════════════════');
+      this.logger.debug('✅ PARSED OUTPUT');
+      this.logger.debug('═══════════════════════════════════════════');
+      this.logger.log(`Total Items Extracted: ${parsedOutput.metadata.totalItems}`);
+      this.logger.log(`Extraction Quality: ${parsedOutput.metadata.extractionQuality}`);
+      this.logger.log(`Confidence Score: ${parsedOutput.metadata.confidenceScore}`);
+      this.logger.log(`Processing Time: ${parsedOutput.metadata.processingTime}ms`);
+      
+      if (parsedOutput.menuSections && parsedOutput.menuSections.length > 0) {
+        this.logger.log(`\nMenu Sections:`);
+        parsedOutput.menuSections.forEach((section, idx) => {
+          this.logger.log(`  ${idx + 1}. ${section.sectionName} (${section.items.length} items)`);
+          section.items.forEach((item, itemIdx) => {
+            this.logger.log(`     ${itemIdx + 1}. ${item.name} - ${item.price || 0}₫`);
+          });
+        });
+      }
+      this.logger.log('═══════════════════════════════════════════');
+      
       this.logger.log(
         `Extracted ${parsedOutput.metadata.totalItems} items in ${parsedOutput.metadata.processingTime}ms`,
       );
 
       return parsedOutput;
     } catch (error) {
-      this.logger.error(`Menu extraction failed: ${error.message}`);
+      // 🔍 LOG 5: Error details
+      this.logger.error('═══════════════════════════════════════════');
+      this.logger.error('❌ VISUAL EXTRACTION ERROR');
+      this.logger.error('═══════════════════════════════════════════');
+      this.logger.error(`Error Type: ${error.constructor.name}`);
+      this.logger.error(`Error Message: ${error.message}`);
+      this.logger.error(`Error Stack: ${error.stack}`);
+      this.logger.error('═══════════════════════════════════════════');
       throw new Error(`Failed to extract menu: ${error.message}`);
     }
   }

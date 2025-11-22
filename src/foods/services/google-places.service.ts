@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Client, PlaceInputType } from '@googlemaps/google-maps-services-js';
+import axios from 'axios';
 import { ConfigService } from '@nestjs/config';
 
 export interface PlaceSearchParams {
@@ -48,30 +49,45 @@ export class GooglePlacesService {
     params: PlaceSearchParams,
   ): Promise<PlaceDetails[]> {
     try {
-      console.log("apiKey", this.apiKey);
-      const response = await this.client.placesNearby({
-        params: {
-          location: {
-            lat: params.latitude,
-            lng: params.longitude,
+      const response = await axios.post(
+        'https://places.googleapis.com/v1/places:searchNearby',
+        {
+          includedTypes: [params.type || 'restaurant'],
+          maxResultCount: 20,
+          locationRestriction: {
+            circle: {
+              center: {
+                latitude: params.latitude,
+                longitude: params.longitude,
+              },
+              radius: params.radius,
+            },
           },
-          radius: params.radius,
-          type: params.type || 'restaurant',
-          keyword: params.keyword,
-          key: this.apiKey,
         },
-      });
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Goog-Api-Key': this.apiKey,
+            'X-Goog-FieldMask':
+              'places.id,places.displayName,places.formattedAddress,places.location,places.rating,places.priceLevel,places.photos,places.nationalPhoneNumber,places.websiteUri,places.regularOpeningHours,places.types',
+          },
+        },
+      );
 
-      if (response.data.status !== 'OK' && response.data.status !== 'ZERO_RESULTS') {
-        this.logger.error(
-          `Google Places API error: ${response.data.status} - ${response.data.error_message}`,
-        );
+      if (!response.data.places) {
         return [];
       }
 
-      return response.data.results.map((place) => this.mapPlaceToDetails(place));
+      return response.data.places.map((place) => this.mapPlaceToDetails(place));
     } catch (error) {
       this.logger.error('Error searching nearby places:', error);
+      if (axios.isAxiosError(error)) {
+        this.logger.error(
+          `API Error: ${error.response?.status} - ${JSON.stringify(
+            error.response?.data,
+          )}`,
+        );
+      }
       throw error;
     }
   }
@@ -103,7 +119,7 @@ export class GooglePlacesService {
         return null;
       }
 
-      return this.mapPlaceToDetails(response.data.result);
+      return this.mapLegacyPlaceToDetails(response.data.result);
     } catch (error) {
       this.logger.error('Error getting place details:', error);
       throw error;
@@ -134,7 +150,7 @@ export class GooglePlacesService {
       }
 
       const place = response.data.candidates[0];
-      return this.mapPlaceToDetails(place);
+      return this.mapLegacyPlaceToDetails(place);
     } catch (error) {
       this.logger.error('Error finding place by address:', error);
       throw error;
@@ -146,6 +162,39 @@ export class GooglePlacesService {
   }
 
   private mapPlaceToDetails(place: any): PlaceDetails {
+    const photos =
+      place.photos?.map(
+        (photo: any) =>
+          `https://places.googleapis.com/v1/${photo.name}/media?key=${this.apiKey}&maxHeightPx=400&maxWidthPx=400`,
+      ) || [];
+
+    const priceLevelMap: { [key: string]: number } = {
+      PRICE_LEVEL_FREE: 0,
+      PRICE_LEVEL_INEXPENSIVE: 1,
+      PRICE_LEVEL_MODERATE: 2,
+      PRICE_LEVEL_EXPENSIVE: 3,
+      PRICE_LEVEL_VERY_EXPENSIVE: 4,
+    };
+
+    return {
+      placeId: place.id,
+      name: place.displayName?.text || place.name,
+      formattedAddress: place.formattedAddress || '',
+      location: {
+        lat: place.location?.latitude || 0,
+        lng: place.location?.longitude || 0,
+      },
+      rating: place.rating,
+      priceLevel: priceLevelMap[place.priceLevel] || undefined,
+      photos,
+      phoneNumber: place.nationalPhoneNumber,
+      website: place.websiteUri,
+      openingHours: place.regularOpeningHours,
+      types: place.types,
+    };
+  }
+
+  private mapLegacyPlaceToDetails(place: any): PlaceDetails {
     const photos = place.photos?.map((photo: any) =>
       this.getPhotoUrl(photo.photo_reference),
     ) || [];

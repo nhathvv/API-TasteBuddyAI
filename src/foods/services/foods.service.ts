@@ -28,7 +28,7 @@ export class FoodsService {
     private onboardingModel: Model<Onboarding>,
     private googlePlacesService: GooglePlacesService,
     private matchingScoreService: MatchingScoreService,
-  ) {}
+  ) { }
 
   async searchFoods(
     searchDto: SearchFoodsDto,
@@ -141,26 +141,26 @@ export class FoodsService {
       // Calculate matching score if user profile exists
       const matching = userProfile
         ? this.matchingScoreService.calculateMatchingScore(
-            food,
-            {
-              nutritionGoals: userProfile.nutritionGoals,
-              dailyTargets: userProfile.dailyTargets,
-              dietaryPreferences: dietaryPreferences as any,
-              allergens: userProfile.allergens,
-            },
-            searchDto.budget,
-          )
+          food,
+          {
+            nutritionGoals: userProfile.nutritionGoals,
+            dailyTargets: userProfile.dailyTargets,
+            dietaryPreferences: dietaryPreferences as any,
+            allergens: userProfile.allergens,
+          },
+          searchDto.budget,
+        )
         : {
-            matchingScore: 50,
-            healthGoalScore: 50,
-            nutritionScore: 50,
-            dietaryScore: 50,
-            allergenScore: 100,
-            budgetScore: searchDto.budget
-              ? this.calculateSimpleBudgetScore(food.price, searchDto.budget)
-              : 100,
-            reasons: ['Search results based on location and filters'],
-          };
+          matchingScore: 50,
+          healthGoalScore: 50,
+          nutritionScore: 50,
+          dietaryScore: 50,
+          allergenScore: 100,
+          budgetScore: searchDto.budget
+            ? this.calculateSimpleBudgetScore(food.price, searchDto.budget)
+            : 100,
+          reasons: ['Search results based on location and filters'],
+        };
 
       results.push({
         restaurant: {
@@ -286,7 +286,6 @@ export class FoodsService {
       radius,
       type: 'restaurant',
     });
-
     for (const place of places) {
       await this.restaurantModel.findOneAndUpdate(
         { placeId: place.placeId },

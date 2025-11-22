@@ -659,9 +659,9 @@ export class MenuController {
   @UseInterceptors(FileInterceptor('image'))
   @ApiConsumes('multipart/form-data')
   @ApiOperation({
-    summary: 'Test Cloud Vision Analysis',
+    summary: 'Test Cloud Vision Analysis with Multi-Agent Pipeline',
     description:
-      'Upload image and analyze using Google Cloud Vision API. Test endpoint for Cloud Vision Agent (does not affect existing flow).',
+      'Upload image and analyze using Google Cloud Vision API with optional multi-agent pipeline (Cloud Vision → Dish Understanding → Nutrition Coach).',
   })
   @ApiBody({
     schema: {
@@ -688,49 +688,96 @@ export class MenuController {
           description: 'Comma-separated language hints (e.g., "vi,en")',
           example: 'vi,en',
         },
+        enablePipeline: {
+          type: 'boolean',
+          description: 'Enable multi-agent pipeline (Cloud Vision → Dish Understanding → Nutrition Coach)',
+          default: false,
+        },
       },
       required: ['image'],
     },
   })
   @ApiResponse({
     status: 200,
-    description: 'Cloud Vision analysis completed successfully',
+    description: 'FR-06 & FR-07: Dish analysis with safety check completed successfully',
     schema: {
       example: {
-        agent: 'CloudVisionAgent',
-        result: {
-          fullText: 'Phở Bò 50,000đ\nBún Riêu 45,000đ',
-          textAnnotations: [
+        success: true,
+        message: 'Dish analysis completed successfully',
+        data: {
+          dishes: [
             {
-              description: 'Phở Bò',
-              confidence: 0.98,
-              boundingPoly: {
-                vertices: [
-                  { x: 10, y: 20 },
-                  { x: 100, y: 20 },
-                  { x: 100, y: 40 },
-                  { x: 10, y: 40 },
+              dishId: 'dish_001',
+              dishName: 'Bánh Mì Thịt Heo Xíu',
+              dishNameEnglish: 'Vietnamese Pork Sandwich',
+              imageAnalysis: {
+                confidence: 0.94,
+                detectedLabels: ['Food', 'Sandwich', 'Vietnamese Cuisine'],
+              },
+              ingredients: [
+                {
+                  name: 'Bánh mì',
+                  nameEnglish: 'Vietnamese Baguette',
+                  isPrimary: true,
+                  allergenTags: ['gluten', 'wheat'],
+                },
+                {
+                  name: 'Thịt heo xíu',
+                  nameEnglish: 'Char Siu Pork',
+                  isPrimary: true,
+                  allergenTags: ['soy'],
+                },
+              ],
+              nutrition: {
+                calories: 450,
+                protein: 28,
+                carbs: 51,
+                fat: 15,
+                fiber: 3,
+                sodium: 900,
+                sugar: 4,
+                servingSize: '1 serving (~200g)',
+              },
+              safetyCheck: {
+                status: 'warning',
+                overallRisk: 'medium',
+                detectedAllergens: [
+                  {
+                    allergen: 'gluten',
+                    source: 'Vietnamese Baguette',
+                    likelihood: 'definite',
+                  },
                 ],
+                healthConditionWarnings: [],
+                warnings: [
+                  '⚠️ Contains gluten from Vietnamese Baguette',
+                ],
+                safeTags: [
+                  '✅ Egg-free',
+                  '✅ Peanut-free',
+                  '✅ Shellfish-free',
+                ],
+                recommendation: 'Consider gluten-free bread alternative',
               },
             },
           ],
-          labelAnnotations: [
-            {
-              description: 'Food',
-              score: 0.95,
-              topicality: 0.92,
-            },
-            {
-              description: 'Menu',
-              score: 0.88,
-              topicality: 0.85,
-            },
-          ],
-          metadata: {
-            processingTime: 1234,
-            confidenceScore: 0.91,
-            featuresRequested: 2,
-            featuresCompleted: ['TEXT_DETECTION', 'LABEL_DETECTION'],
+          summary: {
+            totalDishes: 3,
+            safeCount: 1,
+            warningCount: 1,
+            dangerCount: 1,
+            totalCalories: 1350,
+            averageProtein: 24,
+            processingTime: 65000,
+          },
+          userProfile: {
+            allergens: [
+              { name: 'egg', severity: 'severe' },
+              { name: 'gluten', severity: 'moderate' },
+            ],
+            healthConditions: ['hypertension', 'diabetes'],
+            dietaryGoal: 'weight-loss',
+            dailyCalorieTarget: 2106,
           },
         },
       },
@@ -745,11 +792,11 @@ export class MenuController {
     @Body('features') featuresStr?: string,
     @Body('maxResults') maxResultsStr?: string,
     @Body('languageHints') languageHintsStr?: string,
+    @Body('enablePipeline') enablePipelineStr?: string,
   ) {
     if (!file) {
       throw new BadRequestException('No image file uploaded');
     }
-
     // Convert buffer to base64
     const base64Image = file.buffer.toString('base64');
 
@@ -768,13 +815,28 @@ export class MenuController {
       languageHints = languageHintsStr.split(',').map((l) => l.trim());
     }
 
-    // Call Cloud Vision Agent
-    return this.menuService.testCloudVision({
-      imageData: base64Image,
-      mimeType: file.mimetype,
-      features,
-      maxResults,
-      languageHints,
-    });
+    // Check if pipeline mode is enabled
+    const enablePipeline = enablePipelineStr === 'true';
+
+    if (enablePipeline) {
+      // Call multi-agent pipeline (will use MOCK user data)
+      return this.menuService.testCloudVisionPipeline({
+        imageData: base64Image,
+        mimeType: file.mimetype,
+        features,
+        maxResults,
+        languageHints,
+        // No user profile params - service will use MOCK_USER_DATA
+      });
+    } else {
+      // Call simple Cloud Vision Agent (backward compatible)
+      return this.menuService.testCloudVision({
+        imageData: base64Image,
+        mimeType: file.mimetype,
+        features,
+        maxResults,
+        languageHints,
+      });
+    }
   }
 }

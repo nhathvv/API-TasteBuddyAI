@@ -48,7 +48,7 @@ export class NutritionCoachAgent extends BaseAIAgent<NCAInput, NCAOutput> {
     super(geminiService, {
       name: 'NutritionCoachAgent',
       modelType: 'pro', // Complex reasoning for personalization
-      timeout: 25000, // 25 seconds for meal planning
+      timeout: 40000, // 40 seconds for meal planning (increased for 4-dish analysis)
       cacheable: false, // User profiles change
       systemInstruction: `You are an expert Nutrition Coach specializing in Vietnamese cuisine and evidence-based nutrition science.
 

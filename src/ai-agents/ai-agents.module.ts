@@ -4,6 +4,7 @@ import { GeminiCoreService } from '@/shared/services/gemini-core.service';
 import { VisualExtractionAgent } from './visual-extraction/visual-extraction.agent';
 import { AllergenSafetyAgent } from './allergen-safety/allergen-safety.agent';
 import { NutritionCoachAgent } from './nutrition-coach/nutrition-coach.agent';
+import { DietaryComplianceAgent } from './dietary-compliance/dietary-compliance.agent';
 
 /**
  * AI Agents Module
@@ -13,7 +14,7 @@ import { NutritionCoachAgent } from './nutrition-coach/nutrition-coach.agent';
  * - Visual Extraction Agent (VEA) ✅
  * - Allergen Safety Agent (CSAA) ✅
  * - Nutrition Coach Agent (NCA) ✅
- * - Dietary Compliance Agent (DCA) - Coming soon
+ * - Dietary Compliance Agent (DCA) ✅
  * - Food Recognition Agent (FRA) - Coming soon
  * - Recipe Rewriter Agent (RRA) - Coming soon
  *
@@ -26,6 +27,7 @@ import { NutritionCoachAgent } from './nutrition-coach/nutrition-coach.agent';
     VisualExtractionAgent,
     AllergenSafetyAgent,
     NutritionCoachAgent,
+    DietaryComplianceAgent,
     // Future agents will be added here
   ],
   exports: [
@@ -33,6 +35,7 @@ import { NutritionCoachAgent } from './nutrition-coach/nutrition-coach.agent';
     VisualExtractionAgent,
     AllergenSafetyAgent,
     NutritionCoachAgent,
+    DietaryComplianceAgent,
     // Future agents will be exported here
   ],
 })

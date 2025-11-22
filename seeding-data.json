@@ -1,0 +1,237 @@
+{
+  "languages": [
+    {
+      "code": "en",
+      "name": "English",
+      "nativeName": "English",
+      "flag": "🇺🇸"
+    },
+    {
+      "code": "es",
+      "name": "Spanish",
+      "nativeName": "Español",
+      "flag": "🇪🇸"
+    },
+    {
+      "code": "fr",
+      "name": "French",
+      "nativeName": "Français",
+      "flag": "🇫🇷"
+    },
+    {
+      "code": "de",
+      "name": "German",
+      "nativeName": "Deutsch",
+      "flag": "🇩🇪"
+    },
+    {
+      "code": "ja",
+      "name": "Japanese",
+      "nativeName": "日本語",
+      "flag": "🇯🇵"
+    },
+    {
+      "code": "zh",
+      "name": "Chinese",
+      "nativeName": "中文",
+      "flag": "🇨🇳"
+    },
+    {
+      "code": "ar",
+      "name": "Arabic",
+      "nativeName": "العربية",
+      "flag": "🇸🇦"
+    },
+    {
+      "code": "pt",
+      "name": "Portuguese",
+      "nativeName": "Português",
+      "flag": "🇧🇷"
+    },
+    {
+      "code": "ru",
+      "name": "Russian",
+      "nativeName": "Русский",
+      "flag": "🇷🇺"
+    },
+    {
+      "code": "hi",
+      "name": "Hindi",
+      "nativeName": "हिन्दी",
+      "flag": "🇮🇳"
+    }
+  ],
+  "users": [
+    {
+      "language": "en",
+      "dietaryPreferences": ["vegetarian", "gluten-free"],
+      "allergens": [
+        {
+          "type": "peanuts",
+          "severity": "severe"
+        },
+        {
+          "type": "shellfish",
+          "severity": "moderate"
+        }
+      ],
+      "nutritionGoals": {
+        "gender": "female",
+        "age": 28,
+        "weight": 62,
+        "height": 165,
+        "activityLevel": "moderate",
+        "goal": "maintain",
+        "healthConditions": ["none"]
+      },
+      "dailyTargets": {
+        "calories": 2000,
+        "protein": 75,
+        "carbs": 250,
+        "fats": 67
+      },
+      "smartFeatures": {
+        "cameraAccess": true,
+        "locationAccess": true,
+        "notifications": true
+      },
+      "completed": true
+    },
+    {
+      "language": "es",
+      "dietaryPreferences": ["halal"],
+      "allergens": [
+        {
+          "type": "dairy",
+          "severity": "mild"
+        }
+      ],
+      "nutritionGoals": {
+        "gender": "male",
+        "age": 35,
+        "weight": 88,
+        "height": 178,
+        "activityLevel": "active",
+        "goal": "lose-weight",
+        "healthConditions": ["high-blood-pressure", "high-cholesterol"]
+      },
+      "dailyTargets": {
+        "calories": 2200,
+        "protein": 110,
+        "carbs": 220,
+        "fats": 73
+      },
+      "smartFeatures": {
+        "cameraAccess": true,
+        "locationAccess": false,
+        "notifications": true
+      },
+      "completed": true
+    },
+    {
+      "language": "ja",
+      "dietaryPreferences": ["pescatarian", "low-carb"],
+      "allergens": [
+        {
+          "type": "soy",
+          "severity": "mild"
+        },
+        {
+          "type": "eggs",
+          "severity": "moderate"
+        }
+      ],
+      "nutritionGoals": {
+        "gender": "female",
+        "age": 42,
+        "weight": 56,
+        "height": 158,
+        "activityLevel": "light",
+        "goal": "maintain",
+        "healthConditions": ["diabetes"]
+      },
+      "dailyTargets": {
+        "calories": 1600,
+        "protein": 80,
+        "carbs": 120,
+        "fats": 71
+      },
+      "smartFeatures": {
+        "cameraAccess": false,
+        "locationAccess": true,
+        "notifications": true
+      },
+      "completed": true
+    },
+    {
+      "language": "de",
+      "dietaryPreferences": ["vegan"],
+      "allergens": [
+        {
+          "type": "tree-nuts",
+          "severity": "severe"
+        },
+        {
+          "type": "sesame",
+          "severity": "moderate"
+        }
+      ],
+      "nutritionGoals": {
+        "gender": "male",
+        "age": 24,
+        "weight": 72,
+        "height": 182,
+        "activityLevel": "very-active",
+        "goal": "gain-muscle",
+        "healthConditions": ["none"]
+      },
+      "dailyTargets": {
+        "calories": 3000,
+        "protein": 150,
+        "carbs": 375,
+        "fats": 100
+      },
+      "smartFeatures": {
+        "cameraAccess": true,
+        "locationAccess": true,
+        "notifications": true
+      },
+      "completed": true
+    },
+    {
+      "language": "ar",
+      "dietaryPreferences": ["halal", "lactose-intolerant"],
+      "allergens": [
+        {
+          "type": "wheat",
+          "severity": "moderate"
+        },
+        {
+          "type": "fish",
+          "severity": "mild"
+        }
+      ],
+      "nutritionGoals": {
+        "gender": "other",
+        "age": 31,
+        "weight": 78,
+        "height": 170,
+        "activityLevel": "sedentary",
+        "goal": "lose-weight",
+        "healthConditions": ["heart-disease", "high-cholesterol"]
+      },
+      "dailyTargets": {
+        "calories": 1800,
+        "protein": 90,
+        "carbs": 180,
+        "fats": 60
+      },
+      "smartFeatures": {
+        "cameraAccess": false,
+        "locationAccess": false,
+        "notifications": false
+      },
+      "completed": false
+    }
+  ]
+}

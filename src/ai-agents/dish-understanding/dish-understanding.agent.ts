@@ -36,9 +36,10 @@ export class DishUnderstandingAgent extends BaseAIAgent<DUIAInput, DUIAOutput> {
     constructor(geminiService: GeminiCoreService) {
         super(geminiService, {
             name: 'DishUnderstandingAgent',
-            modelType: 'pro', // Use Pro for complex reasoning
-            timeout: 30000, // 30 seconds for multi-dish analysis
-            cacheable: true, // Can cache common dishes
+            modelType: 'flash', // Use Flash for 5x faster processing (good accuracy for simple dishes)
+            timeout: 30000, // 30 seconds - Flash is much faster than Pro
+            cacheable: true,
+            cacheTTL: 86400, // 24 hours
             systemInstruction: `You are DishUnderstandingIngredientAgent (DUIA).
 
 You are a senior culinary knowledge and dish-understanding agent,

@@ -4,6 +4,7 @@ import { FoodsController } from './foods.controller';
 import { FoodsService } from './services/foods.service';
 import { GooglePlacesService } from './services/google-places.service';
 import { MatchingScoreService } from './services/matching-score.service';
+import { GeminiService } from './services/gemini.service';
 import { Restaurant, RestaurantSchema } from './schemas/restaurant.schema';
 import { Food, FoodSchema } from './schemas/food.schema';
 import {
@@ -20,7 +21,7 @@ import {
     ]),
   ],
   controllers: [FoodsController],
-  providers: [FoodsService, GooglePlacesService, MatchingScoreService],
-  exports: [FoodsService, GooglePlacesService, MatchingScoreService],
+  providers: [FoodsService, GooglePlacesService, MatchingScoreService, GeminiService],
+  exports: [FoodsService, GooglePlacesService, MatchingScoreService, GeminiService],
 })
 export class FoodsModule {}

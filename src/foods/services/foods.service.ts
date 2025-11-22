@@ -5,6 +5,7 @@ import { Restaurant } from '../schemas/restaurant.schema';
 import { Food } from '../schemas/food.schema';
 import { GooglePlacesService } from './google-places.service';
 import { MatchingScoreService } from './matching-score.service';
+import { GeminiService, FoodAnalysisInput } from './gemini.service';
 import {
   SearchFoodsDto,
   SortBy,
@@ -28,6 +29,7 @@ export class FoodsService {
     private onboardingModel: Model<Onboarding>,
     private googlePlacesService: GooglePlacesService,
     private matchingScoreService: MatchingScoreService,
+    private geminiService: GeminiService,
   ) { }
 
   async searchFoods(
@@ -195,6 +197,12 @@ export class FoodsService {
       });
     }
 
+    // Apply AI Agent analysis if user profile exists
+    if (userProfile && results.length > 0) {
+      this.logger.log('Applying AI Agent analysis...');
+      await this.applyAIAnalysis(results, userProfile, searchDto.mealTime);
+    }
+
     // Sort results
     this.sortResults(results, searchDto.sortBy || SortBy.MATCHING_SCORE);
 
@@ -205,6 +213,17 @@ export class FoodsService {
     const endIndex = startIndex + limit;
     const paginatedResults = results.slice(startIndex, endIndex);
 
+    // Generate AI summary
+    let aiSummary: string | undefined;
+    if (userProfile && paginatedResults.length > 0) {
+      const foodInputs = paginatedResults.map(r => this.convertToFoodAnalysisInput(r, userProfile, searchDto.mealTime));
+      aiSummary = await this.geminiService.generateRecommendationSummary(foodInputs, {
+        healthGoal: userProfile.nutritionGoals,
+        dailyTargets: userProfile.dailyTargets,
+        dietaryPreferences: dietaryPreferences,
+      });
+    }
+
     return {
       results: paginatedResults,
       total: results.length,
@@ -212,6 +231,7 @@ export class FoodsService {
       limit,
       totalPages: Math.ceil(results.length / limit),
       hasMore: endIndex < results.length,
+      aiSummary,
     };
   }
 
@@ -271,6 +291,70 @@ export class FoodsService {
     }
     const overRatio = (price - budget) / budget;
     return Math.max(0, 100 - overRatio * 100);
+  }
+
+  /**
+   * Apply AI Agent analysis to food results
+   */
+  private async applyAIAnalysis(
+    results: FoodSearchResultItem[],
+    userProfile: Onboarding,
+    mealTime?: string,
+  ): Promise<void> {
+    // Batch analyze top results (limit to prevent excessive API calls)
+    const batchSize = Math.min(results.length, 10);
+    const topResults = results.slice(0, batchSize);
+
+    const foodInputs: FoodAnalysisInput[] = topResults.map(result =>
+      this.convertToFoodAnalysisInput(result, userProfile, mealTime),
+    );
+
+    const aiRecommendations = await this.geminiService.analyzeFoodBatch(foodInputs);
+
+    // Apply AI recommendations to results
+    for (let i = 0; i < topResults.length; i++) {
+      const aiRec = aiRecommendations[i];
+      topResults[i].matching.aiRecommendationScore = aiRec.recommendationScore;
+      topResults[i].matching.aiNutritionAnalysis = aiRec.nutritionAnalysis;
+      topResults[i].matching.aiHealthImpact = aiRec.healthImpact;
+      topResults[i].matching.aiSuggestions = aiRec.suggestions;
+
+      // Optionally blend AI score with matching score
+      // Uncomment to use AI score in final ranking
+      // topResults[i].matching.matchingScore =
+      //   (topResults[i].matching.matchingScore * 0.7) + (aiRec.recommendationScore * 0.3);
+    }
+  }
+
+  /**
+   * Convert search result item to FoodAnalysisInput for AI
+   */
+  private convertToFoodAnalysisInput(
+    result: FoodSearchResultItem,
+    userProfile: Onboarding,
+    mealTime?: string,
+  ): FoodAnalysisInput {
+    return {
+      foodName: result.food.name || 'Unknown Food',
+      description: result.food.description,
+      nutritionInfo: {
+        calories: result.food.nutritionInfo?.calories || 0,
+        protein: result.food.nutritionInfo?.protein || 0,
+        carbs: result.food.nutritionInfo?.carbs || 0,
+        fats: result.food.nutritionInfo?.fats || 0,
+        fiber: result.food.nutritionInfo?.fiber,
+        sugar: result.food.nutritionInfo?.sugar,
+      },
+      price: result.food.price || 0,
+      restaurantName: result.restaurant.name || 'Unknown Restaurant',
+      userProfile: {
+        healthGoal: userProfile.nutritionGoals?.toString() || 'maintain',
+        dailyTargets: userProfile.dailyTargets,
+        dietaryPreferences: userProfile.dietaryPreferences,
+        allergens: userProfile.allergens,
+      },
+      mealTime,
+    };
   }
 
   async syncRestaurantsFromGooglePlaces(

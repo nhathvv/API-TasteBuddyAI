@@ -22,6 +22,11 @@ export enum SearchRadius {
   RADIUS_2KM = 2000,
   RADIUS_5KM = 5000,
   RADIUS_10KM = 10000,
+  RADIUS_20KM = 20000,
+  RADIUS_50KM = 50000,
+  RADIUS_100KM = 100000,
+  RADIUS_200KM = 200000,
+  RADIUS_500KM = 500000,
 }
 
 export enum MealTime {

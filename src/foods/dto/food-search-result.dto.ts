@@ -49,6 +49,35 @@ export class FoodMatchingDetails {
     ],
   })
   reasons: string[];
+
+  @ApiProperty({
+    description: 'AI-powered recommendation score (0-100)',
+    example: 88,
+    required: false,
+  })
+  aiRecommendationScore?: number;
+
+  @ApiProperty({
+    description: 'AI-generated nutrition analysis',
+    example: 'This meal provides excellent protein-to-calorie ratio for muscle building',
+    required: false,
+  })
+  aiNutritionAnalysis?: string;
+
+  @ApiProperty({
+    description: 'AI assessment of health impact',
+    example: 'Strongly supports your muscle gain goal with balanced macros',
+    required: false,
+  })
+  aiHealthImpact?: string;
+
+  @ApiProperty({
+    description: 'AI suggestions for this food',
+    type: [String],
+    example: ['Consider pairing with brown rice for sustained energy'],
+    required: false,
+  })
+  aiSuggestions?: string[];
 }
 
 export class FoodSearchResultItem {
@@ -107,4 +136,11 @@ export class FoodSearchResultDto {
     example: true,
   })
   hasMore: boolean;
+
+  @ApiProperty({
+    description: 'AI-generated personalized summary of search results',
+    example: 'Great news! These options align well with your muscle gain goal. Most meals are high in protein and within your calorie range. Focus on the top-ranked items for maximum results!',
+    required: false,
+  })
+  aiSummary?: string;
 }

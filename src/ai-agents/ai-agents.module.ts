@@ -9,6 +9,7 @@ import { DishUnderstandingAgent } from './dish-understanding/dish-understanding.
 import { DishRecognitionAgent } from './dish-recognition/dish-recognition.agent';
 import { AgentOrchestratorService } from './orchestrator/agent-orchestrator.service';
 import { FoodImageValidationModule } from './food-image-validation/food-image-validation.module';
+import { CloudVisionAgent } from './cloud-vision/cloud-vision.agent';
 
 /**
  * AI Agents Module
@@ -17,11 +18,12 @@ import { FoodImageValidationModule } from './food-image-validation/food-image-va
  * Provides:
  * - Visual Extraction Agent (VEA) ✅
  * - Dish Understanding Agent (DUIA) ✅
- * - Dish Recognition Agent (DRA) ✅ NEW
+ * - Dish Recognition Agent (DRA) ✅
  * - Allergen Safety Agent (CSAA) ✅
  * - Nutrition Coach Agent (NCA) ✅
  * - Dietary Compliance Agent (DCA) ✅
  * - Food Image Validation (Gatekeeper) ✅
+ * - Cloud Vision Agent (CVA) ✅ NEW
  *
  * All agents are exported for use in feature modules.
  */
@@ -36,6 +38,7 @@ import { FoodImageValidationModule } from './food-image-validation/food-image-va
     NutritionCoachAgent,
     DietaryComplianceAgent,
     AgentOrchestratorService,
+    CloudVisionAgent,
   ],
   exports: [
     GeminiCoreService,
@@ -47,6 +50,7 @@ import { FoodImageValidationModule } from './food-image-validation/food-image-va
     DietaryComplianceAgent,
     AgentOrchestratorService,
     FoodImageValidationModule,
+    CloudVisionAgent,
   ],
 })
 export class AIAgentsModule { }

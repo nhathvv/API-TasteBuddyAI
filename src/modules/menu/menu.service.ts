@@ -5,6 +5,8 @@ import { AllergenSafetyAgent } from '@/ai-agents/allergen-safety/allergen-safety
 import { DietaryComplianceAgent } from '@/ai-agents/dietary-compliance/dietary-compliance.agent';
 import { NutritionCoachAgent } from '@/ai-agents/nutrition-coach/nutrition-coach.agent';
 import { DishUnderstandingAgent } from '@/ai-agents/dish-understanding/dish-understanding.agent';
+import { CloudVisionAgent } from '@/ai-agents/cloud-vision/cloud-vision.agent';
+import { VisionFeature } from '@/ai-agents/cloud-vision/cloud-vision.schema';
 import { ScanMenuDto } from './dto/scan-menu.dto';
 import {
   TestVisualExtractionDto,
@@ -36,6 +38,7 @@ export class MenuService {
     private readonly dietaryComplianceAgent: DietaryComplianceAgent,
     private readonly orchestrator: AgentOrchestratorService,
     private readonly foodImageValidationService: FoodImageValidationService,
+    private readonly cloudVisionAgent: CloudVisionAgent,
   ) { }
 
   /**
@@ -294,6 +297,41 @@ export class MenuService {
 
     return {
       agent: 'DishRecognitionAgent',
+      result,
+    };
+  }
+
+  /**
+   * Test Cloud Vision Agent
+   * Analyze image using Google Cloud Vision API
+   */
+  async testCloudVision(input: {
+    imageData: string;
+    mimeType: string;
+    features?: string[];
+    maxResults?: number;
+    languageHints?: string[];
+  }) {
+    this.logger.log('Testing Cloud Vision Agent...');
+
+    // Parse features if provided as strings
+    let parsedFeatures: any[] | undefined;
+    if (input.features && input.features.length > 0) {
+      parsedFeatures = input.features.map(
+        (f) => VisionFeature[f as keyof typeof VisionFeature],
+      );
+    }
+
+    const result = await this.cloudVisionAgent.execute({
+      imageData: input.imageData,
+      mimeType: input.mimeType,
+      features: parsedFeatures,
+      maxResults: input.maxResults,
+      languageHints: input.languageHints,
+    });
+
+    return {
+      agent: 'CloudVisionAgent',
       result,
     };
   }

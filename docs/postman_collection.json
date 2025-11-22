@@ -1,0 +1,154 @@
+{
+  "info": {
+    "name": "TasteBuddyAI - Agent Testing",
+    "description": "Collection để test các AI agents trong TasteBuddyAI API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "1. Visual Extraction Agent",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"imageData\": \"{{MENU_IMAGE_BASE64}}\",\n  \"mimeType\": \"image/jpeg\",\n  \"language\": \"vi\",\n  \"extractionMode\": \"quick\"\n}"
+        },
+        "url": {
+          "raw": "{{BASE_URL}}/menu/test/visual-extraction",
+          "host": ["{{BASE_URL}}"],
+          "path": ["menu", "test", "visual-extraction"]
+        },
+        "description": "Test Visual Extraction Agent - trích xuất menu items từ ảnh"
+      }
+    },
+    {
+      "name": "2. Allergen Safety Agent",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"menuItems\": [\n    {\n      \"name\": \"Phở Bò\",\n      \"description\": \"Phở bò truyền thống với nước dùng xương\",\n      \"price\": 50000\n    },\n    {\n      \"name\": \"Bún Đậu Mắm Tôm\",\n      \"description\": \"Bún đậu với mắm tôm\",\n      \"price\": 45000\n    },\n    {\n      \"name\": \"Gỏi Cuốn\",\n      \"description\": \"Gỏi cuốn tôm thịt\",\n      \"price\": 35000\n    }\n  ],\n  \"userAllergens\": [\n    {\n      \"type\": \"shellfish\",\n      \"severity\": \"severe\"\n    },\n    {\n      \"type\": \"peanuts\",\n      \"severity\": \"moderate\"\n    }\n  ],\n  \"strictMode\": true,\n  \"language\": \"en\"\n}"
+        },
+        "url": {
+          "raw": "{{BASE_URL}}/menu/test/allergen-safety",
+          "host": ["{{BASE_URL}}"],
+          "path": ["menu", "test", "allergen-safety"]
+        },
+        "description": "Test Allergen Safety Agent - phân tích rủi ro dị ứng"
+      }
+    },
+    {
+      "name": "3. Dietary Compliance Agent",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"menuItems\": [\n    {\n      \"name\": \"Phở Chay\",\n      \"description\": \"Phở chay với nước dùng rau củ\",\n      \"price\": 45000\n    },\n    {\n      \"name\": \"Cơm Gà\",\n      \"description\": \"Cơm gà Hải Nam\",\n      \"price\": 55000\n    },\n    {\n      \"name\": \"Gỏi Cuốn Chay\",\n      \"description\": \"Gỏi cuốn chay với đậu hũ\",\n      \"price\": 30000\n    }\n  ],\n  \"dietaryRestrictions\": [\"vegan\", \"gluten-free\"],\n  \"context\": \"User is vegan and has celiac disease. Looking for safe Vietnamese options.\"\n}"
+        },
+        "url": {
+          "raw": "{{BASE_URL}}/menu/test/dietary-compliance",
+          "host": ["{{BASE_URL}}"],
+          "path": ["menu", "test", "dietary-compliance"]
+        },
+        "description": "Test Dietary Compliance Agent - kiểm tra tuân thủ chế độ ăn"
+      }
+    },
+    {
+      "name": "4. Nutrition Coach - Daily Targets",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"age\": 30,\n  \"gender\": \"male\",\n  \"weight\": 75,\n  \"height\": 175,\n  \"activityLevel\": \"moderate\",\n  \"goal\": \"weight-loss\",\n  \"healthConditions\": [\"hypertension\"],\n  \"dietaryPreferences\": [\"mediterranean\"],\n  \"requestType\": \"daily-targets\"\n}"
+        },
+        "url": {
+          "raw": "{{BASE_URL}}/menu/test/nutrition-coach",
+          "host": ["{{BASE_URL}}"],
+          "path": ["menu", "test", "nutrition-coach"]
+        },
+        "description": "Test Nutrition Coach - tính toán daily nutrition targets"
+      }
+    },
+    {
+      "name": "5. Nutrition Coach - Meal Plan",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"age\": 25,\n  \"gender\": \"female\",\n  \"weight\": 60,\n  \"height\": 165,\n  \"activityLevel\": \"active\",\n  \"goal\": \"muscle-gain\",\n  \"healthConditions\": [],\n  \"dietaryPreferences\": [\"pescatarian\"],\n  \"requestType\": \"meal-plan\",\n  \"timeframe\": \"daily\"\n}"
+        },
+        "url": {
+          "raw": "{{BASE_URL}}/menu/test/nutrition-coach",
+          "host": ["{{BASE_URL}}"],
+          "path": ["menu", "test", "nutrition-coach"]
+        },
+        "description": "Test Nutrition Coach - tạo meal plan cho Vietnamese dishes"
+      }
+    },
+    {
+      "name": "6. Full Menu Scan Workflow",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"imageData\": \"{{MENU_IMAGE_BASE64}}\",\n  \"mimeType\": \"image/jpeg\",\n  \"language\": \"vi\",\n  \"extractionMode\": \"quick\",\n  \"strictAllergenMode\": true,\n  \"outputLanguage\": \"en\",\n  \"userAllergens\": [\n    {\n      \"type\": \"shellfish\",\n      \"severity\": \"life-threatening\"\n    }\n  ],\n  \"dietaryRestrictions\": [\"halal\"],\n  \"context\": \"Muslim customer with severe shellfish allergy\"\n}"
+        },
+        "url": {
+          "raw": "{{BASE_URL}}/menu/scan",
+          "host": ["{{BASE_URL}}"],
+          "path": ["menu", "scan"]
+        },
+        "description": "Full workflow - chạy tất cả agents song song"
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "BASE_URL",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "MENU_IMAGE_BASE64",
+      "value": "",
+      "type": "string",
+      "description": "Paste base64 encoded menu image here"
+    }
+  ]
+}

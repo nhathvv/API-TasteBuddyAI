@@ -244,14 +244,13 @@ Be thorough, be cautious, be helpful.`,
       temperature: 0.4, // Balanced: factual but flexible
       topK: 40,
       topP: 0.95,
-      maxRetries: 3,
     });
   }
 
   /**
    * Validate input before processing
    */
-  protected validate(input: DCAInput): boolean {
+  public validate(input: DCAInput): boolean {
     try {
       validateDCAInput(input);
       return true;
@@ -275,7 +274,7 @@ Be thorough, be cautious, be helpful.`,
       const model = this.geminiService.getProModel({
         generationConfig: {
           responseMimeType: 'application/json',
-          responseSchema: DIETARY_COMPLIANCE_SCHEMA,
+          responseSchema: DIETARY_COMPLIANCE_SCHEMA as any,
           temperature: this.config.temperature,
           topK: this.config.topK,
           topP: this.config.topP,

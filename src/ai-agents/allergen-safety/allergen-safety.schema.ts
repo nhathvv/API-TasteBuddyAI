@@ -36,12 +36,17 @@ export interface UserAllergen {
   severity: AllergenSeverity;
 }
 
+import { IDishUnderstanding } from '@/shared/types';
+
 /**
  * CSAA Input Schema
  */
 export interface CSAAInput {
   /** Menu items from VEA to analyze */
   menuItems: MenuItem[];
+
+  /** Enriched dish understanding from DUIA (optional but recommended) */
+  enrichedItems?: IDishUnderstanding[];
 
   /** User's allergen profile */
   userAllergens: UserAllergen[];

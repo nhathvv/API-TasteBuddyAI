@@ -22,15 +22,15 @@ export class GeminiCoreService implements OnModuleInit {
   private genAI: GoogleGenerativeAI;
   private readonly apiKey: string;
 
-  // Model name constants
-  private readonly GEMINI_PRO = 'gemini-1.5-pro';
-  private readonly GEMINI_FLASH = 'gemini-1.5-flash';
+  // Model name constants - Using latest stable aliases
+  private readonly GEMINI_PRO = 'gemini-pro-latest';
+  private readonly GEMINI_FLASH = 'gemini-flash-latest';
 
   constructor(private readonly configService: ConfigService) {
     // Get API key from environment variables
-    this.apiKey = this.configService.get<string>('GOOGLE_API_KEY');
+    const apiKey = this.configService.get<string>('GOOGLE_API_KEY');
 
-    if (!this.apiKey) {
+    if (!apiKey) {
       this.logger.error(
         'GOOGLE_API_KEY is not defined in environment variables',
       );
@@ -38,6 +38,8 @@ export class GeminiCoreService implements OnModuleInit {
         'Missing GOOGLE_API_KEY. Please set it in your .env file.',
       );
     }
+
+    this.apiKey = apiKey;
   }
 
   /**
@@ -70,6 +72,13 @@ export class GeminiCoreService implements OnModuleInit {
       model: modelName,
       ...params,
     });
+  }
+
+  /**
+   * Get a raw GenerativeModel instance (wrapper for genAI.getGenerativeModel)
+   */
+  getGenerativeModel(params: ModelParams): GenerativeModel {
+    return this.genAI.getGenerativeModel(params);
   }
 
   /**
@@ -120,7 +129,7 @@ export class GeminiCoreService implements OnModuleInit {
     generationConfig?: GenerationConfig,
     retries: number = 3,
   ): Promise<string> {
-    let lastError: Error;
+    let lastError: Error = new Error('Unknown error occurred');
 
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
@@ -143,7 +152,7 @@ export class GeminiCoreService implements OnModuleInit {
         );
 
         return text;
-      } catch (error) {
+      } catch (error: any) {
         lastError = error;
         this.logger.warn(
           `Generate content attempt ${attempt} failed: ${error.message}`,

@@ -306,11 +306,39 @@ REMEMBER: You are protecting lives. Be thorough, be cautious, be clear.`,
    * @returns Formatted prompt string
    */
   private buildAnalysisPrompt(input: CSAAInput): string {
-    const { menuItems, userAllergens, strictMode, language } = input;
+    const { menuItems, enrichedItems, userAllergens, strictMode, language } = input;
 
     const allergenList = userAllergens
       .map((a) => `${a.type} (severity: ${a.severity})`)
       .join(', ');
+
+    let menuContent = '';
+
+    if (enrichedItems && enrichedItems.length > 0) {
+      // Use enriched data for better analysis
+      menuContent = enrichedItems
+        .map((item, idx) => {
+          const signals = item.inferredAllergenSignals?.length
+            ? `\n   - Signals: ${item.inferredAllergenSignals.join(', ')}`
+            : '';
+          const ingredients = item.ingredients
+            ?.map((i) => i.canonicalName)
+            .join(', ');
+          const ingredientStr = ingredients
+            ? `\n   - Ingredients: ${ingredients}`
+            : '';
+
+          return `${idx + 1}. ${item.originalName} (${item.canonicalName})${ingredientStr}${signals}`;
+        })
+        .join('\n');
+    } else {
+      // Fallback to basic menu items
+      menuContent = menuItems
+        .map((item, idx) => {
+          return `${idx + 1}. ${item.name}${item.description ? ` - ${item.description}` : ''}`;
+        })
+        .join('\n');
+    }
 
     let prompt = `ALLERGEN SAFETY ANALYSIS REQUEST
 
@@ -321,11 +349,7 @@ Analysis Mode: ${strictMode !== false ? 'STRICT (flag even trace amounts)' : 'FL
 Output Language: ${language || 'en'}
 
 Menu Items to Analyze:
-${menuItems
-  .map((item, idx) => {
-    return `${idx + 1}. ${item.name}${item.description ? ` - ${item.description}` : ''}`;
-  })
-  .join('\n')}
+${menuContent}
 
 TASK:
 For EACH dish above, perform a thorough allergen safety analysis.
@@ -333,10 +357,11 @@ For EACH dish above, perform a thorough allergen safety analysis.
 REQUIREMENTS:
 1. Identify ALL instances of the user's allergens (${allergenList})
 2. Use your Vietnamese cuisine knowledge base to detect HIDDEN allergens
-3. Provide step-by-step Chain-of-Thought reasoning
-4. Classify risk level appropriately
-5. Give actionable recommendations if unsafe
-6. Suggest safe alternatives from the same menu
+3. Pay attention to "Signals" and "Ingredients" provided in the input
+4. Provide step-by-step Chain-of-Thought reasoning
+5. Classify risk level appropriately
+6. Give actionable recommendations if unsafe
+7. Suggest safe alternatives from the same menu
 
 Return the analysis as JSON following the schema exactly.`;
 

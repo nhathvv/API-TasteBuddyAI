@@ -19,8 +19,7 @@ import { GeminiCoreService } from '@/shared/services/gemini-core.service';
  * @template TOutput - The output type for the agent
  */
 export abstract class BaseAIAgent<TInput, TOutput>
-  implements IAIAgent<TInput, TOutput>
-{
+  implements IAIAgent<TInput, TOutput> {
   protected readonly logger: Logger;
   protected readonly config: AgentConfig;
 
@@ -70,7 +69,7 @@ export abstract class BaseAIAgent<TInput, TOutput>
       // Step 2: Execute with timeout
       const result = await this.executeWithTimeout(
         this.process(input),
-        this.config.timeout,
+        this.config.timeout ?? 30000,
       );
 
       // Step 3: Validate output

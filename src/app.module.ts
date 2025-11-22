@@ -6,6 +6,7 @@ import { AppService } from './app.service';
 import { UsersModule } from './users/users.module';
 import { SeedModule } from './database/seeds/seed.module';
 import { FoodsModule } from './foods/foods.module';
+import { MenuModule } from '@/modules/menu/menu.module';
 import { connectOptions, connectUrl } from 'src/configs/mongo.cnf';
 
 @Module({
@@ -18,6 +19,7 @@ import { connectOptions, connectUrl } from 'src/configs/mongo.cnf';
     UsersModule,
     SeedModule,
     FoodsModule,
+    MenuModule,
   ],
   controllers: [AppController],
   providers: [AppService],

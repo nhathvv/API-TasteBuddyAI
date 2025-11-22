@@ -116,6 +116,7 @@ OUTPUT FORMAT:
 
     // Create prompt for menu extraction
     const prompt = this.buildExtractionPrompt(input);
+    console.log('Prompt:', prompt);
 
     // Get Gemini Flash model (optimized for vision tasks)
     const model = this.getModel();

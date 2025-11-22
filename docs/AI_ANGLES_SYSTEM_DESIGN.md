@@ -462,92 +462,55 @@ interface Violation {
 
 ---
 
-### 2.5 Food Recognition Agent (FRA)
+### 2.5 Dish Recognition Agent (DRA)
 
-**Role**: Real-time food identification from images
+**Role**: Real-time food identification from images (Single Dish & Full Table Feast)
 
-**Goal**: Identify Vietnamese dishes, estimate portions, and provide nutritional information from food photos.
+**Goal**: Identify Vietnamese dishes with high cultural accuracy, determine cuisine origin, and handle complex scenes with multiple dishes.
 
-**Model**: Gemini 1.5 Flash (fast multimodal processing)
+**Model**: Gemini 1.5 Pro (deep cultural context & complex visual analysis)
 
 #### Input Schema
 
 ```typescript
-interface FRAInput {
+interface DRAInput {
   imageData: string;            // Base64
   mimeType: string;
-  context?: {
-    location?: string;          // "Hanoi", "Saigon" - cuisine varies by region
-    mealType?: 'breakfast' | 'lunch' | 'dinner' | 'snack';
-    userHint?: string;          // Optional user description
-  };
 }
 ```
 
 #### Output Schema
 
 ```typescript
-interface FRAOutput {
-  identifiedDishes: IdentifiedDish[];
-  confidence: number;
-  metadata: {
-    plateCount: number;
-    estimatedServings: number;
-    totalEstimatedCalories?: number;
-  };
+interface DRAOutput {
+  dishes: RecognizedDish[];
 }
 
-interface IdentifiedDish {
-  dishName: string;
-  englishName?: string;
-  category: DishCategory;
-  confidence: number;
-  portion: 'small' | 'medium' | 'large';
-  estimatedWeight?: number;     // grams
-  ingredients: Ingredient[];
-  nutrition?: NutritionInfo;
-  regionalVariant?: string;     // e.g., "Northern style", "Southern style"
-}
-
-type DishCategory =
-  | 'noodle-soup' | 'rice-dish' | 'appetizer'
-  | 'grilled' | 'stir-fry' | 'dessert' | 'beverage';
-
-interface Ingredient {
-  name: string;
-  category: 'protein' | 'vegetable' | 'grain' | 'sauce' | 'garnish';
-  estimatedAmount?: string;
-}
-
-interface NutritionInfo {
-  calories: number;
-  protein: number;
-  carbs: number;
-  fats: number;
-  fiber?: number;
-  sodium?: number;
+interface RecognizedDish {
+  detectedDishName: string;     // e.g., "Bún Chả", "Pizza Margherita"
+  cuisineOrigin: string;        // e.g., "Vietnam", "Italy"
+  confidenceScore: number;      // 0.0 - 1.0
+  visualCharacteristics?: string; // e.g., "Grilled pork with vermicelli"
 }
 ```
 
 #### Constraints
 
 **Vietnamese Dish Recognition Knowledge**:
-- Must recognize 200+ common Vietnamese dishes
-- Regional variations (Phở Hà Nội vs Phở Sài Gòn)
-- Portion estimation based on visual cues
-- Ingredient identification from garnishes
+- Must distinguish subtle differences (e.g., Bún Riêu vs Bún Bò)
+- Handle "Full Table Feast" (mâm cỗ) with 5-7 dishes
+- Prioritize native names over generic English translations
 
 **Rules**:
-- **IF** confidence < 0.6 → Provide top 3 possibilities
-- **MUST** estimate portion size
-- **SHOULD** identify hidden ingredients (nuts, shellfish)
-- **TIMEOUT**: 5 seconds max
+- **IF** confidence < 0.7 → Flag as low confidence
+- **MUST** identify all distinct dishes in the image
+- **TIMEOUT**: 25 seconds max (due to Pro model latency)
 
 #### Error Handling
 
 - Low light images → Request better photo
-- Multiple unidentifiable dishes → Return best guesses with low confidence
-- Non-food image → Reject with error code
+- Unidentifiable objects → Return empty list or generic "Unknown Food"
+- Non-food image → Handled by upstream Gatekeeper
 
 ---
 
@@ -798,9 +761,48 @@ sequenceDiagram
    - Time: ~2-4 seconds each
 
 4. **Response Aggregation**
-   - Merge VEA + CSAA + DCA results
-   - Apply business rules (hide unsafe items, flag warnings)
-   - Format for client consumption
+   - Combine results into `MenuAnalysis` object
+   - Return to client
+
+#### Use Case 2: Real Food Image Analysis
+
+**Trigger**: User uploads photo of a dish or table feast
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant API
+    participant Gatekeeper
+    participant DRA
+    participant CSAA
+    participant NCA
+
+    User->>API: POST /menu/scan (food image)
+
+    API->>Gatekeeper: Validate & Classify
+    Gatekeeper-->>API: { isFood: true, category: 'single_dish' }
+
+    API->>DRA: Identify dishes (Gemini Pro)
+    DRA-->>API: [{ name: "Phở Bò", origin: "Vietnam" }]
+
+    par Deep Analysis
+        API->>CSAA: Analyze allergens for "Phở Bò"
+        API->>NCA: Analyze nutrition for "Phở Bò"
+    end
+
+    API-->>User: Combined Food Analysis
+```
+
+**Steps**:
+
+1.  **Gatekeeper**: Validates image is food and classifies as `single_dish` or `multi_dish_table`.
+2.  **Dish Recognition Agent (DRA)**:
+    -   Input: Image
+    -   Model: Gemini 1.5 Pro
+    -   Output: List of recognized dishes with cultural context.
+3.  **Safety & Nutrition**:
+    -   Agents run on the *recognized dish names* instead of OCR text.
+    -   Provides safety warnings and nutrition facts.
 
 5. **Persistence**
    - Save to database: menu_scans table
@@ -2329,21 +2331,21 @@ Design and implement the base agent interface and abstract class that all AI age
 Implement the orchestrator service that manages agent workflows, handles parallel execution, and aggregates results from multiple agents.
 
 **Acceptance Criteria**:
-- [ ] AgentOrchestratorService can execute agents in sequence
-- [ ] Supports parallel agent execution using Promise.all()
-- [ ] Handles agent failures gracefully
-- [ ] Aggregates results from multiple agents
-- [ ] Logs execution timeline
-- [ ] Unit tests with mocked agents
+- [x] AgentOrchestratorService can execute agents in sequence
+- [x] Supports parallel agent execution using Promise.all()
+- [x] Handles agent failures gracefully
+- [x] Aggregates results from multiple agents
+- [x] Logs execution timeline
+- [x] Unit tests with mocked agents
 - [ ] Performance benchmarks
 
 **Technical Tasks**:
-- [ ] Create `agent-orchestrator.service.ts`
-- [ ] Implement sequential execution method
-- [ ] Implement parallel execution method
-- [ ] Add result aggregation logic
-- [ ] Error recovery mechanisms
-- [ ] Write tests with 3+ mocked agents
+- [x] Create `agent-orchestrator.service.ts`
+- [x] Implement sequential execution method
+- [x] Implement parallel execution method
+- [x] Add result aggregation logic
+- [x] Error recovery mechanisms
+- [x] Write tests with 3+ mocked agents
 - [ ] Document orchestration patterns
 
 **Estimation**: 4 days

@@ -654,4 +654,127 @@ export class MenuController {
       strictAllergenMode: strictAllergenMode === 'true' || strictAllergenMode === undefined,
     });
   }
+
+  @Post('upload/vision-test')
+  @UseInterceptors(FileInterceptor('image'))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({
+    summary: 'Test Cloud Vision Analysis',
+    description:
+      'Upload image and analyze using Google Cloud Vision API. Test endpoint for Cloud Vision Agent (does not affect existing flow).',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        image: {
+          type: 'string',
+          format: 'binary',
+          description: 'Image file to analyze',
+        },
+        features: {
+          type: 'string',
+          description: 'Comma-separated features to detect (e.g., "TEXT_DETECTION,LABEL_DETECTION")',
+          example: 'TEXT_DETECTION,LABEL_DETECTION',
+          default: 'TEXT_DETECTION,LABEL_DETECTION',
+        },
+        maxResults: {
+          type: 'number',
+          description: 'Maximum results per feature',
+          default: 10,
+        },
+        languageHints: {
+          type: 'string',
+          description: 'Comma-separated language hints (e.g., "vi,en")',
+          example: 'vi,en',
+        },
+      },
+      required: ['image'],
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Cloud Vision analysis completed successfully',
+    schema: {
+      example: {
+        agent: 'CloudVisionAgent',
+        result: {
+          fullText: 'Phở Bò 50,000đ\nBún Riêu 45,000đ',
+          textAnnotations: [
+            {
+              description: 'Phở Bò',
+              confidence: 0.98,
+              boundingPoly: {
+                vertices: [
+                  { x: 10, y: 20 },
+                  { x: 100, y: 20 },
+                  { x: 100, y: 40 },
+                  { x: 10, y: 40 },
+                ],
+              },
+            },
+          ],
+          labelAnnotations: [
+            {
+              description: 'Food',
+              score: 0.95,
+              topicality: 0.92,
+            },
+            {
+              description: 'Menu',
+              score: 0.88,
+              topicality: 0.85,
+            },
+          ],
+          metadata: {
+            processingTime: 1234,
+            confidenceScore: 0.91,
+            featuresRequested: 2,
+            featuresCompleted: ['TEXT_DETECTION', 'LABEL_DETECTION'],
+          },
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'No file uploaded or invalid file type',
+  })
+  async uploadCloudVisionTest(
+    @UploadedFile() file: Express.Multer.File,
+    @Body('features') featuresStr?: string,
+    @Body('maxResults') maxResultsStr?: string,
+    @Body('languageHints') languageHintsStr?: string,
+  ) {
+    if (!file) {
+      throw new BadRequestException('No image file uploaded');
+    }
+
+    // Convert buffer to base64
+    const base64Image = file.buffer.toString('base64');
+
+    // Parse features (comma-separated)
+    let features: string[] | undefined;
+    if (featuresStr) {
+      features = featuresStr.split(',').map((f) => f.trim());
+    }
+
+    // Parse max results
+    const maxResults = maxResultsStr ? parseInt(maxResultsStr, 10) : undefined;
+
+    // Parse language hints (comma-separated)
+    let languageHints: string[] | undefined;
+    if (languageHintsStr) {
+      languageHints = languageHintsStr.split(',').map((l) => l.trim());
+    }
+
+    // Call Cloud Vision Agent
+    return this.menuService.testCloudVision({
+      imageData: base64Image,
+      mimeType: file.mimetype,
+      features,
+      maxResults,
+      languageHints,
+    });
+  }
 }
